@@ -5,13 +5,13 @@ services:
     image: postgres:15
     restart: unless-stopped
     environment:
-      POSTGRES_USER: fiber
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: fibercrm
+      POSTGRES_USER: ${POSTGRES_USER:-fiber}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fiberpass}
+      POSTGRES_DB: ${POSTGRES_DB:-fibercrm}
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "fiber"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fiber} -d ${POSTGRES_DB:-fibercrm}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -26,11 +26,27 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql+asyncpg://fiber:password@db:5432/fibercrm
-      JWT_SECRET: super-secret-key
+      APP_ENV: ${APP_ENV:-dev}
+      APP_RELEASE: ${APP_RELEASE:-local-dev}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://fiber:fiberpass@db:5432/fibercrm}
+      JWT_SECRET: ${JWT_SECRET:-change-me}
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-*}
+      SQL_ECHO: ${SQL_ECHO:-false}
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      RATE_LIMIT_AUTH_PER_MINUTE: ${RATE_LIMIT_AUTH_PER_MINUTE:-20}
+      RATE_LIMIT_REGISTER_PER_MINUTE: ${RATE_LIMIT_REGISTER_PER_MINUTE:-10}
+      RATE_LIMIT_REPORT_PER_MINUTE: ${RATE_LIMIT_REPORT_PER_MINUTE:-20}
+      RATE_LIMIT_REALTIME_PER_MINUTE: ${RATE_LIMIT_REALTIME_PER_MINUTE:-120}
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-2000000}
     volumes:
       - ./backend/app:/app/app:delegated
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    command: ["uvicorn", "app.main:sio_app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   nginx:
     image: nginx:1.25

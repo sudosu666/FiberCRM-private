@@ -7,9 +7,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import decode_token
+from ..config import settings
 from ..database import AsyncSessionLocal
 from ..models import (
     Brigade,
+    BrigadeMember,
     Message,
     Notification,
     Task,
@@ -19,8 +21,10 @@ from ..models import (
     UserRole as ModelUserRole,
 )
 from ..schemas import UserRole
+from ..rate_limit import limiter
 
-sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
+sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins=settings.cors_origins)
+sid_context: dict[str, dict[str, Any]] = {}
 
 
 def _parse_timestamp(value: Optional[str]) -> datetime:
@@ -76,31 +80,72 @@ class RealtimeManager:
 manager = RealtimeManager(sio)
 
 
+def _sio_key(sid: str, label: str) -> str:
+    return f"{sid}:{label}"
+
+
 @sio.event
 async def connect(sid: str, environ: dict, auth: Optional[dict]) -> None:
-    role: Optional[str] = None
-    brigade_id: Optional[str] = None
-    token = None
-    if isinstance(auth, dict):
-        role = auth.get('role')
-        brigade_id = auth.get('brigade_id')
-        token = auth.get('token')
-    if token:
-        try:
-            payload = decode_token(token)
-            if payload.role:
-                role = payload.role.value
-        except Exception:
-            pass
-    if role == UserRole.Dispatcher.value:
-        await sio.enter_room(sid, 'dispatchers')
-    elif brigade_id:
-        await sio.enter_room(sid, f'brigade_{brigade_id}')
-    print(f"User {sid} connected as {role or 'guest'}")
+    client_ip = (environ or {}).get("REMOTE_ADDR", "unknown")
+    allowed, _ = limiter.hit(
+        "sio.connect",
+        str(client_ip),
+        settings.rate_limit_realtime_per_minute,
+        60,
+    )
+    if not allowed:
+        raise ConnectionRefusedError("Rate limit exceeded")
+    if not isinstance(auth, dict):
+        raise ConnectionRefusedError("Authentication required")
+    token = auth.get("token")
+    brigade_id = auth.get("brigade_id")
+    if not token:
+        raise ConnectionRefusedError("Authentication required")
+    try:
+        token_data = decode_token(token)
+    except Exception as exc:
+        raise ConnectionRefusedError("Invalid token") from exc
+    if not token_data.phone:
+        raise ConnectionRefusedError("Invalid token payload")
+
+    async with AsyncSessionLocal() as session:
+        user = (await session.scalars(select(User).where(User.phone == token_data.phone).limit(1))).first()
+        if not user:
+            raise ConnectionRefusedError("User not found")
+
+        role = token_data.role.value if token_data.role else user.role.value
+        if role == UserRole.Dispatcher.value:
+            await sio.enter_room(sid, "dispatchers")
+        else:
+            if not brigade_id:
+                raise ConnectionRefusedError("Brigade room requires brigade_id")
+            brigade_uuid = _to_uuid(brigade_id)
+            if not brigade_uuid:
+                raise ConnectionRefusedError("Invalid brigade_id")
+            brigade = await session.get(Brigade, brigade_uuid)
+            if not brigade:
+                raise ConnectionRefusedError("Brigade not found")
+            membership_stmt = select(BrigadeMember).where(
+                BrigadeMember.brigade_id == brigade.id,
+                BrigadeMember.user_id == user.id,
+            )
+            member = (await session.execute(membership_stmt)).scalars().first()
+            if brigade.foreman_id != user.id and not member:
+                raise ConnectionRefusedError("Forbidden brigade access")
+            await sio.enter_room(sid, f"brigade_{brigade.id}")
+            brigade_id = str(brigade.id)
+
+    sid_context[sid] = {
+        "user_id": str(user.id),
+        "role": role,
+        "brigade_id": brigade_id,
+    }
+    print(f"User {sid} connected as {role}")
 
 
 @sio.event
 async def disconnect(sid: str) -> None:
+    sid_context.pop(sid, None)
     print(f'Disconnected: {sid}')
 
 
@@ -108,8 +153,19 @@ async def disconnect(sid: str) -> None:
 async def chat_message(sid: str, data: dict[str, str]) -> None:
     if not isinstance(data, dict):
         return
+    if sid not in sid_context:
+        return
+    allowed, _ = limiter.hit(
+        "sio.chat_message",
+        _sio_key(sid, "chat"),
+        settings.rate_limit_realtime_per_minute,
+        60,
+    )
+    if not allowed:
+        return
+    context = sid_context[sid]
     timestamp = _parse_timestamp(data.get('timestamp'))
-    brigade_id = data.get('brigade_id')
+    brigade_id = context.get("brigade_id") or data.get("brigade_id")
     task_uuid = _to_uuid(data.get('task_id'))
     payload = {
         'brigade_id': brigade_id,
@@ -147,8 +203,19 @@ async def chat_message(sid: str, data: dict[str, str]) -> None:
 async def progress_update(sid: str, data: dict[str, str]) -> None:
     if not isinstance(data, dict):
         return
+    if sid not in sid_context:
+        return
+    allowed, _ = limiter.hit(
+        "sio.progress_update",
+        _sio_key(sid, "progress"),
+        settings.rate_limit_realtime_per_minute,
+        60,
+    )
+    if not allowed:
+        return
+    context = sid_context[sid]
     timestamp = _parse_timestamp(data.get('timestamp'))
-    brigade_id = data.get('brigade_id')
+    brigade_id = context.get("brigade_id") or data.get("brigade_id")
     task_uuid = _to_uuid(data.get('task_id'))
     step_name = data.get('step', 'н/д')
     payload = {

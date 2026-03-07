@@ -85,7 +85,7 @@ class User(SQLModel, table=True):
     phone: str = Field(sa_column=Column(String(20), unique=True, nullable=False))
     email: Optional[str] = Field(default=None, sa_column=Column(String(150), unique=True))
     role: UserRole = Field(sa_column=Column(PgEnum(UserRole, name="user_role")), default=UserRole.Dispatcher)
-    password_hash: str = Field(sa_column=Column(Text), nullable=False)
+    password_hash: str = Field(sa_column=Column(Text, nullable=False))
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -103,7 +103,7 @@ class Brigade(SQLModel, table=True):
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     name: str = Field(nullable=False)
-    type: TaskType = Field(sa_column=Column(PgEnum(TaskType, name="task_type")), nullable=False)
+    type: TaskType = Field(sa_column=Column(PgEnum(TaskType, name="task_type"), nullable=False))
     foreman_id: Optional[UUID] = Field(default=None, foreign_key="users.id")
     is_active: bool = Field(default=True)
 
@@ -222,7 +222,7 @@ class Task(SQLModel, table=True):
     __tablename__ = "tasks"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    type: TaskType = Field(sa_column=Column(PgEnum(TaskType, name="task_type")), nullable=False)
+    type: TaskType = Field(sa_column=Column(PgEnum(TaskType, name="task_type"), nullable=False))
     status: TaskStatus = Field(sa_column=Column(PgEnum(TaskStatus, name="task_status")), default=TaskStatus.pending)
     priority: int = Field(default=0)
     building_id: Optional[UUID] = Field(default=None, foreign_key="buildings.id")

@@ -5,12 +5,14 @@ from pathlib import Path
 from typing import List, Optional
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..config import settings
 from ..database import get_session
 from ..models import Brigade, Task, TaskReport, TaskStatus, User, UserRole
+from ..rate_limit import enforce_http_rate_limit
 from ..schemas import (
     BrigadeBoardItem,
     TaskAssignRequest,
@@ -45,20 +47,31 @@ router = APIRouter(prefix='/api')
 
 UPLOAD_DIR = Path(__file__).resolve().parents[1] / "frontend" / "static" / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
 
 def _decode_photo_payload(raw_data: str) -> bytes:
     header, _, payload = raw_data.partition(',')
     if not payload:
         payload = header
+    if not payload:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="photo_data is empty")
+    estimated_size = (len(payload) * 3) // 4
+    if estimated_size > settings.max_upload_bytes:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="photo_data exceeds max size")
     try:
-        return base64.b64decode(payload)
+        decoded = base64.b64decode(payload, validate=True)
     except (binascii.Error, ValueError) as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail='photo_data should be base64') from exc
+    if len(decoded) > settings.max_upload_bytes:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="photo_data exceeds max size")
+    return decoded
 
 
 def _build_photo_path(filename: str, payload: bytes) -> str:
-    ext = Path(filename).suffix or '.png'
+    ext = (Path(filename).suffix or ".png").lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Unsupported file extension")
     target = UPLOAD_DIR / f'{uuid4().hex}{ext}'
     target.write_bytes(payload)
     return f'/static/uploads/{target.name}'
@@ -158,10 +171,17 @@ async def get_field_metrics(session: AsyncSession = Depends(get_session)) -> Fie
 
 @router.post('/tasks/{task_id}/reports', response_model=TaskReportRead, status_code=status.HTTP_201_CREATED)
 async def create_task_report(
+    request: Request,
     task_id: UUID,
     body: TaskReportCreate,
     session: AsyncSession = Depends(get_session),
 ) -> TaskReportRead:
+    enforce_http_rate_limit(
+        request,
+        scope="reports.create",
+        limit=settings.rate_limit_report_per_minute,
+        key_suffix=str(body.brigade_id) if body.brigade_id else None,
+    )
     task = await session.get(Task, task_id)
     if not task:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Task not found')

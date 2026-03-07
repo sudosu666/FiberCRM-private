@@ -24,8 +24,8 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 def decode_token(token: str) -> TokenData:
     try:
         payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
-        username: Optional[str] = payload.get('sub')
+        phone: Optional[str] = payload.get('sub')
         role = payload.get('role')
-        return TokenData(username=username, role=role)
+        return TokenData(phone=phone, role=role)
     except JWTError:
         raise

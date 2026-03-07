@@ -38,4 +38,99 @@ jobs:
       - name: Docker compose config
         run: docker compose config
         env:
-          DATABASE_URL: postgresql+asyncpg://fiber:password@localhost:5432/fibercrm
+          DATABASE_URL: postgresql+asyncpg://fiber:fiberpass@localhost:5432/fibercrm
+
+  e2e-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.11
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r backend/requirements.txt
+      - name: Start stack
+        run: docker compose up -d --build db backend
+        env:
+          APP_ENV: dev
+          JWT_SECRET: ci-local-secret
+          CORS_ALLOW_ORIGINS: http://localhost:3000,http://localhost:8000
+          RATE_LIMIT_AUTH_PER_MINUTE: 3
+          MAX_UPLOAD_BYTES: 1024
+          POSTGRES_USER: fiber
+          POSTGRES_PASSWORD: fiberpass
+          POSTGRES_DB: fibercrm
+          DATABASE_URL: postgresql+asyncpg://fiber:fiberpass@db:5432/fibercrm
+      - name: Wait for readiness
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8000/health/ready >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Backend did not become ready in time"
+          exit 1
+      - name: Run E2E smoke
+        run: pytest -q tests/e2e/api tests/e2e/realtime
+        env:
+          E2E_BASE_URL: http://localhost:8000
+          RATE_LIMIT_AUTH_PER_MINUTE: 3
+          MAX_UPLOAD_BYTES: 1024
+      - name: Dump compose logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Teardown
+        if: always()
+        run: docker compose down -v
+
+  e2e-full:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.11
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r backend/requirements.txt
+      - name: Start stack
+        run: docker compose up -d --build db backend
+        env:
+          APP_ENV: dev
+          JWT_SECRET: ci-local-secret
+          CORS_ALLOW_ORIGINS: http://localhost:3000,http://localhost:8000
+          RATE_LIMIT_AUTH_PER_MINUTE: 5
+          MAX_UPLOAD_BYTES: 4096
+          POSTGRES_USER: fiber
+          POSTGRES_PASSWORD: fiberpass
+          POSTGRES_DB: fibercrm
+          DATABASE_URL: postgresql+asyncpg://fiber:fiberpass@db:5432/fibercrm
+      - name: Wait for readiness
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8000/health/ready >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Backend did not become ready in time"
+          exit 1
+      - name: Run full E2E
+        run: pytest -q tests/e2e
+        env:
+          E2E_BASE_URL: http://localhost:8000
+          RATE_LIMIT_AUTH_PER_MINUTE: 5
+          MAX_UPLOAD_BYTES: 4096
+      - name: Dump compose logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Teardown
+        if: always()
+        run: docker compose down -v

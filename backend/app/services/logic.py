@@ -30,6 +30,7 @@ from ..schemas import (
     BuildingMetrics,
     BrigadeBoardItem,
     BrigadeTaskSummary,
+    FieldMetrics,
     NetworkFiberRead,
     NetworkMuffleRead,
     NetworkOverview,
