@@ -4,7 +4,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import get_db_session
+from ..database import get_session
 from ..models import Task, TaskStatus
 from ..schemas import (
     BrigadeBoardItem,
@@ -28,14 +28,14 @@ from ..services.realtime import manager as realtime_manager
 router = APIRouter(prefix='/api')
 
 @router.get('/tasks', response_model=List[TaskQueueItem])
-async def get_tasks(session: AsyncSession = Depends(get_db_session)) -> List[TaskQueueItem]:
+async def get_tasks(session: AsyncSession = Depends(get_session)) -> List[TaskQueueItem]:
     return await load_task_queue(session)
 
 @router.post('/tasks/{task_id}/assign', response_model=TaskQueueItem)
 async def assign_task(
     task_id: str,
     body: TaskAssignRequest,
-    session: AsyncSession = Depends(get_db_session),
+    session: AsyncSession = Depends(get_session),
 ) -> TaskQueueItem:
     task = await session.get(Task, task_id)
     if not task:
@@ -56,21 +56,21 @@ async def assign_task(
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='Unable to build task payload')
 
 @router.get('/brigades', response_model=List[BrigadeBoardItem])
-async def get_brigades(session: AsyncSession = Depends(get_db_session)) -> List[BrigadeBoardItem]:
+async def get_brigades(session: AsyncSession = Depends(get_session)) -> List[BrigadeBoardItem]:
     return await load_brigade_board(session)
 
 @router.get('/timeline', response_model=List[TimelineHour])
-async def get_timeline(session: AsyncSession = Depends(get_db_session)) -> List[TimelineHour]:
+async def get_timeline(session: AsyncSession = Depends(get_session)) -> List[TimelineHour]:
     return await load_timeline(session)
 
 @router.get('/network/topology', response_model=List[NetworkMuffleRead])
-async def get_network(session: AsyncSession = Depends(get_db_session)) -> List[NetworkMuffleRead]:
+async def get_network(session: AsyncSession = Depends(get_session)) -> List[NetworkMuffleRead]:
     return await load_network_topology(session)
 
 @router.get('/stock', response_model=List[StockItemRead])
-async def get_stock(session: AsyncSession = Depends(get_db_session)) -> List[StockItemRead]:
+async def get_stock(session: AsyncSession = Depends(get_session)) -> List[StockItemRead]:
     return await load_stock_items(session)
 
 @router.get('/warehouse/requests', response_model=List[WarehouseRequestRead])
-async def get_requests(session: AsyncSession = Depends(get_db_session)) -> List[WarehouseRequestRead]:
+async def get_requests(session: AsyncSession = Depends(get_session)) -> List[WarehouseRequestRead]:
     return await load_warehouse_requests(session)

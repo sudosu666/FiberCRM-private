@@ -6,3 +6,5 @@ passlib[bcrypt]==1.7.4
 python-jose[cryptography]==3.3.0
 alembic==2.1.0
 pydantic[dotenv]==2.7.0
+sqlmodel==0.0.9
+python-socketio[asyncio]==5.9.0

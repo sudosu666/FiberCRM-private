@@ -1,342 +1,384 @@
-from datetime import datetime
+from __future__ import annotations
+
+from datetime import date, datetime
 from enum import Enum
-from typing import Optional
-from uuid import uuid4
+from typing import List, Optional
+from uuid import UUID, uuid4
 
 from sqlalchemy import (
     Boolean,
     Column,
+    Date,
     DateTime,
-    Enum as PgEnum,
     Float,
     ForeignKey,
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.dialects.postgresql import ENUM as PgEnum
+from sqlmodel import Field, Relationship, SQLModel
 
-from .database import Base
 
 class UserRole(str, Enum):
-    designer = 'Designer'
-    dispatcher = 'Dispatcher'
-    builder = 'Builder'
-    welder = 'Welder'
-    connector = 'Connector'
-    warehouse = 'Warehouse'
+    Designer = "Designer"
+    Dispatcher = "Dispatcher"
+    Builder = "Builder"
+    Welder = "Welder"
+    Connector = "Connector"
+    Warehouse = "Warehouse"
+
 
 class TenderStatus(str, Enum):
-    new = 'new'
-    planning = 'planning'
-    in_progress = 'in_progress'
-    completed = 'completed'
+    new = "new"
+    planning = "planning"
+    in_progress = "in_progress"
+    completed = "completed"
+
 
 class TaskType(str, Enum):
-    construction = 'construction'
-    welding = 'welding'
-    connection = 'connection'
+    construction = "construction"
+    welding = "welding"
+    connection = "connection"
+
 
 class TaskStatus(str, Enum):
-    pending = 'pending'
-    assigned = 'assigned'
-    in_progress = 'in_progress'
-    completed = 'completed'
-    canceled = 'canceled'
+    pending = "pending"
+    assigned = "assigned"
+    in_progress = "in_progress"
+    completed = "completed"
+    canceled = "canceled"
+
 
 class FiberStatus(str, Enum):
-    free = 'free'
-    reserved = 'reserved'
-    busy = 'busy'
+    free = "free"
+    reserved = "reserved"
+    busy = "busy"
+
 
 class PortStatus(str, Enum):
-    free = 'free'
-    reserved = 'reserved'
-    active = 'active'
-    faulty = 'faulty'
+    free = "free"
+    reserved = "reserved"
+    active = "active"
+    faulty = "faulty"
+
 
 class InfraStatus(str, Enum):
-    planned = 'planned'
-    in_progress = 'in_progress'
-    completed = 'completed'
+    planned = "planned"
+    in_progress = "in_progress"
+    completed = "completed"
+
 
 class RequestStatus(str, Enum):
-    pending = 'pending'
-    fulfilled = 'fulfilled'
-    partial = 'partial'
-    rejected = 'rejected'
+    pending = "pending"
+    fulfilled = "fulfilled"
+    partial = "partial"
+    rejected = "rejected"
+
+
+class User(SQLModel, table=True):
+    __tablename__ = "users"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    name: str = Field(nullable=False)
+    phone: str = Field(sa_column=Column(String(20), unique=True, nullable=False))
+    email: Optional[str] = Field(default=None, sa_column=Column(String(150), unique=True))
+    role: UserRole = Field(sa_column=Column(PgEnum(UserRole, name="user_role")), default=UserRole.Dispatcher)
+    password_hash: str = Field(sa_column=Column(Text), nullable=False)
+    is_active: bool = Field(default=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    led_brigades: List["Brigade"] = Relationship(back_populates="foreman")
+    memberships: List["BrigadeMember"] = Relationship(back_populates="user")
+    task_steps_done: List["TaskStep"] = Relationship(back_populates="actor")
+    task_reports: List["TaskReport"] = Relationship(back_populates="user")
+    notifications: List["Notification"] = Relationship(back_populates="user")
+    push_subscriptions: List["PushSubscription"] = Relationship(back_populates="user")
+    stock_transactions: List["StockTransaction"] = Relationship(back_populates="user")
+
+
+class Brigade(SQLModel, table=True):
+    __tablename__ = "brigades"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    name: str = Field(nullable=False)
+    type: TaskType = Field(sa_column=Column(PgEnum(TaskType, name="task_type")), nullable=False)
+    foreman_id: Optional[UUID] = Field(default=None, foreign_key="users.id")
+    is_active: bool = Field(default=True)
 
+    foreman: Optional[User] = Relationship(back_populates="led_brigades")
+    tasks: List["Task"] = Relationship(back_populates="brigade")
+    members: List["BrigadeMember"] = Relationship(back_populates="brigade")
 
-class User(Base):
-    __tablename__ = 'users'
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    name = Column(String(150), nullable=False)
-    phone = Column(String(20), unique=True)
-    email = Column(String(150), unique=True)
-    role = Column(PgEnum(UserRole, name='user_role'), nullable=False, default=UserRole.dispatcher)
-    password_hash = Column(Text, nullable=False)
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+class BrigadeMember(SQLModel, table=True):
+    __tablename__ = "brigade_members"
+
+    brigade_id: UUID = Field(foreign_key="brigades.id", primary_key=True)
+    user_id: UUID = Field(foreign_key="users.id", primary_key=True)
 
-    brigades = relationship('Brigade', back_populates='foreman')
+    brigade: Brigade = Relationship(back_populates="members")
+    user: User = Relationship(back_populates="memberships")
 
 
-class Brigade(Base):
-    __tablename__ = 'brigades'
+class Tender(SQLModel, table=True):
+    __tablename__ = "tenders"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    name = Column(String(100), nullable=False)
-    type = Column(PgEnum(TaskType, name='task_type'), nullable=False)
-    foreman_id = Column(UUID(as_uuid=True), ForeignKey('users.id'))
-    is_active = Column(Boolean, default=True)
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    name: str = Field(nullable=False)
+    customer: str = Field(default="Vodafone Ukraine")
+    city: Optional[str] = None
+    status: TenderStatus = Field(sa_column=Column(PgEnum(TenderStatus, name="tender_status")), default=TenderStatus.new)
+    deadline: Optional[date] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    closed_at: Optional[datetime] = None
+
+    buildings: List["Building"] = Relationship(back_populates="tender")
+
+
+class Building(SQLModel, table=True):
+    __tablename__ = "buildings"
 
-    foreman = relationship('User', back_populates='brigades')
-    tasks = relationship('Task', back_populates='brigade')
-    members = relationship('BrigadeMember', back_populates='brigade')
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    tender_id: UUID = Field(foreign_key="tenders.id")
+    address: str = Field(nullable=False)
+    city: Optional[str] = None
+    entrances_count: int = Field(nullable=False)
+    floors_count: int = Field(nullable=False)
+    flats_per_floor: int = Field(nullable=False)
+    floor_height_m: float = Field(default=2.8)
+    panel_every_n_floors: int = Field(default=5)
+    distance_from_muffle_m: Optional[float] = None
+    cable_reserve_pct: int = Field(default=15)
+    cable_entry_point: Optional[str] = None
+    cable_entry_notes: Optional[str] = None
+    planned_cable_meters: Optional[float] = None
+    actual_cable_meters: Optional[float] = None
+    infrastructure_status: InfraStatus = Field(sa_column=Column(PgEnum(InfraStatus, name="infra_status")), default=InfraStatus.planned)
+    completed_at: Optional[datetime] = None
+
+    tender: Tender = Relationship(back_populates="buildings")
+    tasks: List["Task"] = Relationship(back_populates="building")
+    panels: List["Panel"] = Relationship(back_populates="building")
+
+
+class Muffle(SQLModel, table=True):
+    __tablename__ = "muffles"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    name: Optional[str] = None
+    address_note: Optional[str] = None
+    coordinate_lat: Optional[float] = None
+    coordinate_lon: Optional[float] = None
+    capacity: int = Field(default=16)
 
+    fibers: List["Fiber"] = Relationship(back_populates="muffle")
 
-class BrigadeMember(Base):
-    __tablename__ = 'brigade_members'
 
-    brigade_id = Column(UUID(as_uuid=True), ForeignKey('brigades.id', ondelete='CASCADE'), primary_key=True)
-    user_id = Column(UUID(as_uuid=True), ForeignKey('users.id', ondelete='CASCADE'), primary_key=True)
+class Fiber(SQLModel, table=True):
+    __tablename__ = "fibers"
+    __table_args__ = (UniqueConstraint("muffle_id", "fiber_number", name="uq_fibers_number"),)
 
-    brigade = relationship('Brigade', back_populates='members')
-    user = relationship('User')
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    muffle_id: UUID = Field(foreign_key="muffles.id")
+    fiber_number: int = Field(nullable=False)
+    status: FiberStatus = Field(sa_column=Column(PgEnum(FiberStatus, name="fiber_status")), default=FiberStatus.free)
 
+    muffle: Muffle = Relationship(back_populates="fibers")
+    panels: List["Panel"] = Relationship(back_populates="fiber")
 
-class Tender(Base):
-    __tablename__ = 'tenders'
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    name = Column(String(255), nullable=False)
-    customer = Column(String(100), nullable=False, default='Vodafone Ukraine')
-    city = Column(String(100))
-    status = Column(PgEnum(TenderStatus, name='tender_status'), default=TenderStatus.new)
-    deadline = Column(DateTime)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    closed_at = Column(DateTime, nullable=True)
+class Panel(SQLModel, table=True):
+    __tablename__ = "panels"
 
-    buildings = relationship('Building', back_populates='tender')
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    building_id: UUID = Field(foreign_key="buildings.id")
+    fiber_id: Optional[UUID] = Field(default=None, foreign_key="fibers.id")
+    entrance_num: int = Field(nullable=False)
+    floor_num: int = Field(nullable=False)
+    label: Optional[str] = None
+    splitter_ratio: int = Field(default=32)
+    installed_at: Optional[datetime] = None
 
+    building: Building = Relationship(back_populates="panels")
+    fiber: Optional[Fiber] = Relationship(back_populates="panels")
+    ports: List["Port"] = Relationship(back_populates="panel")
 
-class Building(Base):
-    __tablename__ = 'buildings'
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tender_id = Column(UUID(as_uuid=True), ForeignKey('tenders.id', ondelete='CASCADE'))
-    address = Column(Text, nullable=False)
-    city = Column(String(100))
-    entrances_count = Column(Integer, nullable=False, default=1)
-    floors_count = Column(Integer, nullable=False, default=1)
-    flats_per_floor = Column(Integer, nullable=False, default=1)
-    floor_height_m = Column(Float, default=2.8)
-    panel_every_n_floors = Column(Integer, default=5)
-    distance_from_muffle_m = Column(Float, default=0.0)
-    cable_reserve_pct = Column(Integer, default=15)
-    cable_entry_point = Column(String(150))
-    cable_entry_notes = Column(Text)
-    planned_cable_meters = Column(Float)
-    actual_cable_meters = Column(Float)
-    infrastructure_status = Column(PgEnum(InfraStatus, name='infra_status'), default=InfraStatus.planned)
-    completed_at = Column(DateTime, nullable=True)
+class Port(SQLModel, table=True):
+    __tablename__ = "ports"
+    __table_args__ = (UniqueConstraint("panel_id", "port_number", name="uq_ports_number"),)
 
-    tender = relationship('Tender', back_populates='buildings')
-    tasks = relationship('Task', back_populates='building')
-    panels = relationship('Panel', back_populates='building')
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    panel_id: UUID = Field(foreign_key="panels.id")
+    port_number: int = Field(nullable=False)
+    status: PortStatus = Field(sa_column=Column(PgEnum(PortStatus, name="port_status")), default=PortStatus.free)
 
+    panel: Panel = Relationship(back_populates="ports")
 
-class Muffle(Base):
-    __tablename__ = 'muffles'
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    name = Column(String(100))
-    address_note = Column(Text)
-    coordinate_lat = Column(Float)
-    coordinate_lon = Column(Float)
-    capacity = Column(Integer, default=16)
+class Task(SQLModel, table=True):
+    __tablename__ = "tasks"
 
-    fibers = relationship('Fiber', back_populates='muffle')
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    type: TaskType = Field(sa_column=Column(PgEnum(TaskType, name="task_type")), nullable=False)
+    status: TaskStatus = Field(sa_column=Column(PgEnum(TaskStatus, name="task_status")), default=TaskStatus.pending)
+    priority: int = Field(default=0)
+    building_id: Optional[UUID] = Field(default=None, foreign_key="buildings.id")
+    brigade_id: Optional[UUID] = Field(default=None, foreign_key="brigades.id")
+    description: Optional[str] = None
+    estimated_hours: Optional[float] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    assigned_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
 
+    building: Optional[Building] = Relationship(back_populates="tasks")
+    brigade: Optional[Brigade] = Relationship(back_populates="tasks")
+    steps: List["TaskStep"] = Relationship(back_populates="task", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
+    reports: List["TaskReport"] = Relationship(back_populates="task", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
 
-class Fiber(Base):
-    __tablename__ = 'fibers'
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    muffle_id = Column(UUID(as_uuid=True), ForeignKey('muffles.id', ondelete='CASCADE'))
-    fiber_number = Column(Integer, nullable=False)
-    status = Column(PgEnum(FiberStatus, name='fiber_status'), default=FiberStatus.free)
+class TaskStep(SQLModel, table=True):
+    __tablename__ = "task_steps"
 
-    muffle = relationship('Muffle', back_populates='fibers')
-    panels = relationship('Panel', back_populates='fiber')
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    task_id: UUID = Field(foreign_key="tasks.id", nullable=False)
+    step_order: int = Field(nullable=False)
+    title: str = Field(nullable=False)
+    hint: Optional[str] = None
+    is_done: bool = Field(default=False)
+    done_at: Optional[datetime] = None
+    done_by: Optional[UUID] = Field(default=None, foreign_key="users.id")
 
+    task: Task = Relationship(back_populates="steps")
+    actor: Optional[User] = Relationship(back_populates="task_steps_done")
 
-class Panel(Base):
-    __tablename__ = 'panels'
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    building_id = Column(UUID(as_uuid=True), ForeignKey('buildings.id', ondelete='CASCADE'))
-    fiber_id = Column(UUID(as_uuid=True), ForeignKey('fibers.id'))
-    entrance_num = Column(Integer, nullable=False)
-    floor_num = Column(Integer, nullable=False)
-    label = Column(String(50))
-    splitter_ratio = Column(Integer, default=32)
-    installed_at = Column(DateTime)
+class TaskReport(SQLModel, table=True):
+    __tablename__ = "task_reports"
 
-    building = relationship('Building', back_populates='panels')
-    fiber = relationship('Fiber', back_populates='panels')
-    ports = relationship('Port', back_populates='panel')
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    task_id: UUID = Field(foreign_key="tasks.id", nullable=False)
+    user_id: UUID = Field(foreign_key="users.id", nullable=False)
+    photo_url: Optional[str] = None
+    comment: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 
+    task: Task = Relationship(back_populates="reports")
+    user: User = Relationship(back_populates="task_reports")
 
-class Port(Base):
-    __tablename__ = 'ports'
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    panel_id = Column(UUID(as_uuid=True), ForeignKey('panels.id', ondelete='CASCADE'))
-    port_number = Column(Integer, nullable=False)
-    status = Column(PgEnum(PortStatus, name='port_status'), default=PortStatus.free)
+class StockItem(SQLModel, table=True):
+    __tablename__ = "stock_items"
 
-    panel = relationship('Panel', back_populates='ports')
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    name: str = Field(nullable=False)
+    unit: str = Field(nullable=False)
+    quantity: float = Field(default=0.0)
+    min_quantity: float = Field(default=0.0)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
+    transactions: List["StockTransaction"] = Relationship(back_populates="stock_item")
 
-class Task(Base):
-    __tablename__ = 'tasks'
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    type = Column(PgEnum(TaskType, name='task_type'), nullable=False)
-    status = Column(PgEnum(TaskStatus, name='task_status'), default=TaskStatus.pending)
-    priority = Column(Integer, default=0)
-    building_id = Column(UUID(as_uuid=True), ForeignKey('buildings.id'))
-    brigade_id = Column(UUID(as_uuid=True), ForeignKey('brigades.id'))
-    description = Column(Text)
-    estimated_hours = Column(Float)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    assigned_at = Column(DateTime)
-    completed_at = Column(DateTime)
+class StockTransaction(SQLModel, table=True):
+    __tablename__ = "stock_transactions"
 
-    building = relationship('Building', back_populates='tasks')
-    brigade = relationship('Brigade', back_populates='tasks')
-    steps = relationship('TaskStep', back_populates='task', cascade='all, delete-orphan')
-    reports = relationship('TaskReport', back_populates='task', cascade='all, delete-orphan')
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    stock_item_id: UUID = Field(foreign_key="stock_items.id", nullable=False)
+    delta: float = Field(nullable=False)
+    reason: Optional[str] = None
+    task_id: Optional[UUID] = Field(default=None, foreign_key="tasks.id")
+    user_id: Optional[UUID] = Field(default=None, foreign_key="users.id")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 
+    stock_item: StockItem = Relationship(back_populates="transactions")
+    task: Optional[Task] = Relationship()
+    user: Optional[User] = Relationship(back_populates="stock_transactions")
 
-class TaskStep(Base):
-    __tablename__ = 'task_steps'
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    task_id = Column(UUID(as_uuid=True), ForeignKey('tasks.id', ondelete='CASCADE'))
-    step_order = Column(Integer, nullable=False)
-    title = Column(String(200), nullable=False)
-    hint = Column(Text)
-    is_done = Column(Boolean, default=False)
-    done_at = Column(DateTime)
-    done_by = Column(UUID(as_uuid=True), ForeignKey('users.id'))
+class WarehouseRequest(SQLModel, table=True):
+    __tablename__ = "warehouse_requests"
 
-    task = relationship('Task', back_populates='steps')
-    actor = relationship('User')
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    requested_by: UUID = Field(foreign_key="users.id", nullable=False)
+    task_id: Optional[UUID] = Field(default=None, foreign_key="tasks.id")
+    building_id: Optional[UUID] = Field(default=None, foreign_key="buildings.id")
+    status: RequestStatus = Field(sa_column=Column(PgEnum(RequestStatus, name="request_status")), default=RequestStatus.pending)
+    notes: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    fulfilled_at: Optional[datetime] = None
 
+    items: List["WarehouseRequestItem"] = Relationship(back_populates="request", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
+    building: Optional[Building] = Relationship()
 
-class TaskReport(Base):
-    __tablename__ = 'task_reports'
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    task_id = Column(UUID(as_uuid=True), ForeignKey('tasks.id', ondelete='CASCADE'))
-    user_id = Column(UUID(as_uuid=True), ForeignKey('users.id'))
-    photo_url = Column(Text)
-    comment = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow)
+class WarehouseRequestItem(SQLModel, table=True):
+    __tablename__ = "warehouse_request_items"
 
-    task = relationship('Task', back_populates='reports')
-    user = relationship('User')
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    request_id: UUID = Field(foreign_key="warehouse_requests.id", nullable=False)
+    stock_item_id: UUID = Field(foreign_key="stock_items.id", nullable=False)
+    planned_qty: float = Field(nullable=False)
+    fulfilled_qty: Optional[float] = None
 
+    request: WarehouseRequest = Relationship(back_populates="items")
+    stock_item: StockItem = Relationship()
 
-class StockItem(Base):
-    __tablename__ = 'stock_items'
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    name = Column(String(150), nullable=False)
-    unit = Column(String(20), nullable=False)
-    quantity = Column(Float, default=0.0)
-    min_quantity = Column(Float, default=0.0)
-    updated_at = Column(DateTime, default=datetime.utcnow)
+class ClientConnection(SQLModel, table=True):
+    __tablename__ = "client_connections"
 
-    transactions = relationship('StockTransaction', back_populates='stock_item')
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    port_id: UUID = Field(foreign_key="ports.id", nullable=False)
+    full_name: Optional[str] = None
+    flat_number: Optional[int] = None
+    phone: Optional[str] = None
+    status: str = Field(default="pending")
+    connected_at: Optional[datetime] = None
+    task_id: Optional[UUID] = Field(default=None, foreign_key="tasks.id")
 
+    port: Port = Relationship()
+    task: Optional[Task] = Relationship()
 
-class StockTransaction(Base):
-    __tablename__ = 'stock_transactions'
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    stock_item_id = Column(UUID(as_uuid=True), ForeignKey('stock_items.id'))
-    delta = Column(Float, nullable=False)
-    reason = Column(String(100))
-    task_id = Column(UUID(as_uuid=True), ForeignKey('tasks.id'))
-    user_id = Column(UUID(as_uuid=True), ForeignKey('users.id'))
-    created_at = Column(DateTime, default=datetime.utcnow)
+class Message(SQLModel, table=True):
+    __tablename__ = "messages"
 
-    stock_item = relationship('StockItem', back_populates='transactions')
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    task_id: UUID = Field(foreign_key="tasks.id", nullable=False)
+    sender_id: UUID = Field(foreign_key="users.id", nullable=False)
+    body: Optional[str] = None
+    photo_url: Optional[str] = None
+    is_read: bool = Field(default=False)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 
+    task: Task = Relationship()
+    sender: User = Relationship()
 
-class WarehouseRequest(Base):
-    __tablename__ = 'warehouse_requests'
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    requested_by = Column(UUID(as_uuid=True), ForeignKey('users.id'))
-    task_id = Column(UUID(as_uuid=True), ForeignKey('tasks.id'))
-    building_id = Column(UUID(as_uuid=True), ForeignKey('buildings.id'))
-    status = Column(PgEnum(RequestStatus, name='request_status'), default=RequestStatus.pending)
-    notes = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    fulfilled_at = Column(DateTime)
+class Notification(SQLModel, table=True):
+    __tablename__ = "notifications"
 
-    items = relationship('WarehouseRequestItem', back_populates='request', cascade='all, delete-orphan')
-    building = relationship('Building')
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    user_id: UUID = Field(foreign_key="users.id", nullable=False)
+    title: str = Field(nullable=False)
+    body: Optional[str] = None
+    is_read: bool = Field(default=False)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 
+    user: User = Relationship(back_populates="notifications")
 
-class WarehouseRequestItem(Base):
-    __tablename__ = 'warehouse_request_items'
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    request_id = Column(UUID(as_uuid=True), ForeignKey('warehouse_requests.id', ondelete='CASCADE'))
-    stock_item_id = Column(UUID(as_uuid=True), ForeignKey('stock_items.id'))
-    planned_qty = Column(Float, nullable=False)
-    fulfilled_qty = Column(Float)
+class PushSubscription(SQLModel, table=True):
+    __tablename__ = "push_subscriptions"
 
-    request = relationship('WarehouseRequest', back_populates='items')
-    stock_item = relationship('StockItem')
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    user_id: UUID = Field(foreign_key="users.id", nullable=False)
+    endpoint: str = Field(nullable=False)
+    p256dh: str = Field(nullable=False)
+    auth: str = Field(nullable=False)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 
-
-class Message(Base):
-    __tablename__ = 'messages'
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    task_id = Column(UUID(as_uuid=True), ForeignKey('tasks.id', ondelete='CASCADE'))
-    sender_id = Column(UUID(as_uuid=True), ForeignKey('users.id'))
-    body = Column(Text)
-    photo_url = Column(Text)
-    is_read = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-
-class Notification(Base):
-    __tablename__ = 'notifications'
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey('users.id', ondelete='CASCADE'))
-    title = Column(String(200), nullable=False)
-    body = Column(Text)
-    is_read = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-
-class PushSubscription(Base):
-    __tablename__ = 'push_subscriptions'
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey('users.id', ondelete='CASCADE'))
-    endpoint = Column(Text, nullable=False)
-    p256dh = Column(Text, nullable=False)
-    auth = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    user: User = Relationship(back_populates="push_subscriptions")

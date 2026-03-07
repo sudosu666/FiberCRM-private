@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <title>FiberOps Dispatch Board</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: 'Inter', 'Segoe UI', sans-serif; margin: 0; background: #0d1b2a; color: #f8fafc; }
+    main { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 1rem; padding: 3rem; }
+    h1 { font-size: clamp(2rem, 4vw, 3rem); }
+    p { max-width: 480px; text-align: center; line-height: 1.5; }
+    .status { border: 1px solid rgba(255,255,255,0.2); padding: 1rem 1.5rem; border-radius: 999px; display: inline-flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 0.75rem; height: 0.75rem; border-radius: 50%; background: #34d399; animation: pulse 2s infinite; }
+    @keyframes pulse { 0% { transform: scale(0.8); opacity: 0.3; } 50% { transform: scale(1.1); opacity: 1; } 100% { transform: scale(0.8); opacity: 0.3; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>FiberOps Dispatch Board</h1>
+    <div class="status">
+      <span class="dot" aria-hidden="true"></span>
+      <span>Real-time sockets: initializing…</span>
+    </div>
+    <p>Сторінка диспетчера буде прив'язана до даних FiberOps CRM: задачі, статуси бригад та графіки підключень. На цьому етапі готовий бекенд із WebSocket-зафондом, а UI підключиться через Socket.IO.</p>
+    <p>У майбутньому тут з'явиться timeline, дошка бригад та чат.</p>
+  </main>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script>
+    const socket = io({ auth: { role: 'Dispatcher' } });
+    socket.on('connect', () => console.log('dispatch socket connected', socket.id));
+    socket.on('task_queue.update', (payload) => console.log('task queue update', payload));
+  </script>
+</body>
+</html>

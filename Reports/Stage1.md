@@ -1,14 +1,17 @@
 # Stage 1 Report — Foundation
 
 ## Scope
-- Provisioned the Python + FastAPI + PostgreSQL foundation that replaces the NestJS plan specified in `Plan/Stages.html`.
-- Captured the canonical schema from `Plan/Tables` in `backend/sql/schema.sql` to keep SQL definitions at hand.
-- Added a `fiber-dispatcher.html` view and shared assets to keep front-end split aligned with the new stack (the remaining pages still rely on the legacy role switcher).
+- Align the backend stack with Python 3.12 + FastAPI + SQLModel + PostgreSQL, mirroring the `Plan/fiberops_schema.sql` definition.
+- Replace the legacy SQLAlchemy models/session with async SQLModel tables and expose the canonical dispatcher UI route.
+- Establish Socket.IO scaffolding, role-aware rooms, and broadcast helpers so the Stage 5 real-time layer has a solid foundation.
 
 ## Completed
-- Backend structure: config, async database session, enumerated SQLAlchemy models, JWT helpers, and an auth router with `/token` and `/users` endpoints.
-- Environment guidance: `.env.example`, `backend/requirements.txt`, and `backend/README.md` describe how to spin up the API.
-- Report folder created to log stages per your request.
+- `app/models.py` now declares every table/enum from the plan using UUID primary keys, SQLModel relationships, and the requested defaults/constraints.
+- `app/database.py` exposes `init_db` + `get_session` on an async engine backed by SQLModel metadata, and `main.py` wires startup initialization + seeds.
+- Auth flow now validates via `phone`, issues JWTs with `TokenData`, and documents the new `UserCreate`/`UserRead` payloads; the requirements list adds `sqlmodel` and `python-socketio[asyncio]`.
+- `app/services/realtime.py` hosts the Socket.IO server, dispatcher/brigade rooms, and a broadcast manager consumed by `logic_router`; `main.py` now surfaces `sio_app`.
+- A dedicated HTMX `ui_router` renders `backend/frontend/templates/dispatcher.html` to prove the UI integration and gives a launcher for future Stage 5 work.
+- README and stage report now describe the new stack, commands, and traceability back to the fiberops schema.
 
 ## Next
-- Stage 2 (Logic Core) will build the task/tender state machine, expose CRUD endpoints, and wire the brigade/warehouse views to real data.
+- Stage 2 (Logic Core) will continue wiring the task/tender state machine, GPON calculations, and the brigade/warehouse endpoints referenced by the frontend.

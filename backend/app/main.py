@@ -1,35 +1,39 @@
+import socketio
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.ext.asyncio import AsyncEngine
 
-from .database import engine, Base, AsyncSessionLocal
-from .routers import auth_router, logic_router, realtime_router
+from .config import settings
+from .database import AsyncSessionLocal, init_db
+from .routers import auth_router, logic_router, ui_router
 from .seed import seed_demo_data
+from .services.realtime import sio
 from .models import UserRole
 
-app = FastAPI(title='FiberOps CRM Backend')
+app = FastAPI(title=settings.app_name)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=['*'],
-    allow_methods=['*'],
-    allow_headers=['*'],
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
-
-@app.on_event('startup')
-async def on_startup():
-    async with engine.begin() as conn:  # type: AsyncEngine
-        await conn.run_sync(Base.metadata.create_all)
-    async with AsyncSessionLocal() as session:
-        await seed_demo_data(session)
 
 app.include_router(auth_router)
 app.include_router(logic_router)
-app.include_router(realtime_router)
+app.include_router(ui_router)
 
-@app.get('/')
-async def health_check():
-    return {'status': 'up', 'backend': 'fastapi'}
+@app.on_event("startup")
+async def on_startup() -> None:
+    await init_db()
+    async with AsyncSessionLocal() as session:
+        await seed_demo_data(session)
 
-@app.get('/whoami')
-async def who_am_i():
-    return {'stack': 'Python + FastAPI', 'roles': [r.value for r in UserRole]}
+@app.get("/")
+async def health_check() -> dict[str, str]:
+    return {"status": "up", "backend": "fastapi"}
+
+@app.get("/whoami")
+async def who_am_i() -> dict[str, list[str]]:
+    return {"stack": "Python + FastAPI", "roles": [role.value for role in UserRole]}
+
+sio_app = socketio.ASGIApp(sio, app)

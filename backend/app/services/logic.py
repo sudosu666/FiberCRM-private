@@ -124,7 +124,7 @@ async def load_task_queue(session: AsyncSession) -> List[TaskQueueItem]:
     stmt = select(Task).options(selectinload(Task.building), selectinload(Task.brigade))
     result = await session.scalars(stmt)
     tasks = result.all()
-    return [_to_task_queue_item(task) for task in tasks]
+    return [task_to_queue_item(task) for task in tasks]
 
 
 async def load_brigade_board(session: AsyncSession) -> List[BrigadeBoardItem]:
