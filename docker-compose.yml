@@ -28,7 +28,7 @@ services:
     environment:
       APP_ENV: ${APP_ENV:-dev}
       APP_RELEASE: ${APP_RELEASE:-local-dev}
-      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://fiber:fiberpass@db:5432/fibercrm}
+      DATABASE_URL: ${BACKEND_DATABASE_URL:-postgresql+asyncpg://fiber:fiberpass@db:5432/fibercrm}
       JWT_SECRET: ${JWT_SECRET:-change-me}
       CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-*}
       SQL_ECHO: ${SQL_ECHO:-false}
