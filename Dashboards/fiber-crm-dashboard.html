@@ -1,0 +1,1248 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FiberOps CRM</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Unbounded:wght@300;400;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0c10;
+    --bg2: #0f1218;
+    --bg3: #151a22;
+    --border: #1e2530;
+    --border2: #2a3340;
+    --accent: #00d4ff;
+    --accent2: #0099bb;
+    --green: #00ff88;
+    --green2: #00cc66;
+    --orange: #ff8c00;
+    --red: #ff3355;
+    --yellow: #ffcc00;
+    --text: #e2e8f0;
+    --text2: #7a8fa6;
+    --text3: #4a5a6a;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'JetBrains Mono', monospace;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: 
+      linear-gradient(var(--border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: 40px 40px;
+    opacity: 0.3;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .app { position: relative; z-index: 1; display: flex; min-height: 100vh; }
+
+  /* SIDEBAR */
+  .sidebar {
+    width: 220px;
+    background: var(--bg2);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    height: 100vh;
+    top: 0; left: 0;
+  }
+
+  .logo {
+    padding: 24px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .logo-text {
+    font-family: 'Unbounded', sans-serif;
+    font-size: 14px;
+    font-weight: 900;
+    color: var(--accent);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+
+  .logo-sub {
+    font-size: 9px;
+    color: var(--text3);
+    margin-top: 3px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+  }
+
+  .nav { flex: 1; padding: 16px 0; }
+
+  .nav-section {
+    padding: 8px 20px 4px;
+    font-size: 9px;
+    color: var(--text3);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+  }
+
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 20px;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-size: 11px;
+    color: var(--text2);
+    border-left: 2px solid transparent;
+    text-decoration: none;
+  }
+
+  .nav-item:hover { background: var(--bg3); color: var(--text); }
+  .nav-item.active { 
+    color: var(--accent); 
+    border-left-color: var(--accent); 
+    background: rgba(0,212,255,0.05);
+  }
+
+  .nav-icon { width: 16px; text-align: center; font-size: 13px; }
+
+  .nav-badge {
+    margin-left: auto;
+    background: var(--accent);
+    color: var(--bg);
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 10px;
+  }
+
+  .nav-badge.orange { background: var(--orange); }
+  .nav-badge.red { background: var(--red); }
+
+  .sidebar-footer {
+    padding: 16px 20px;
+    border-top: 1px solid var(--border);
+    font-size: 10px;
+    color: var(--text3);
+  }
+
+  .status-dot {
+    display: inline-block;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+    margin-right: 6px;
+    box-shadow: 0 0 6px var(--green);
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* MAIN */
+  .main {
+    margin-left: 220px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+  }
+
+  .topbar {
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    padding: 0 28px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+
+  .page-title {
+    font-family: 'Unbounded', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: 1px;
+  }
+
+  .breadcrumb {
+    font-size: 10px;
+    color: var(--text3);
+    margin-left: 4px;
+  }
+
+  .topbar-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .topbar-date {
+    font-size: 10px;
+    color: var(--text3);
+    letter-spacing: 1px;
+  }
+
+  .btn {
+    padding: 7px 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    border: none;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: var(--bg);
+  }
+
+  .btn-primary:hover { background: var(--accent2); }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--text2);
+    border: 1px solid var(--border2);
+  }
+
+  .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+  .content { padding: 28px; }
+
+  /* KPI ROW */
+  .kpi-row {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+
+  .kpi-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    padding: 18px 20px;
+    position: relative;
+    overflow: hidden;
+    animation: fadeIn 0.4s ease both;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .kpi-card:nth-child(1) { animation-delay: 0.05s; }
+  .kpi-card:nth-child(2) { animation-delay: 0.1s; }
+  .kpi-card:nth-child(3) { animation-delay: 0.15s; }
+  .kpi-card:nth-child(4) { animation-delay: 0.2s; }
+  .kpi-card:nth-child(5) { animation-delay: 0.25s; }
+
+  .kpi-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--kpi-color, var(--accent));
+  }
+
+  .kpi-label {
+    font-size: 9px;
+    color: var(--text3);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+
+  .kpi-value {
+    font-family: 'Unbounded', sans-serif;
+    font-size: 26px;
+    font-weight: 900;
+    color: var(--kpi-color, var(--accent));
+    line-height: 1;
+    margin-bottom: 6px;
+  }
+
+  .kpi-sub {
+    font-size: 9px;
+    color: var(--text2);
+  }
+
+  .kpi-trend {
+    font-size: 9px;
+    margin-top: 4px;
+  }
+
+  .trend-up { color: var(--green); }
+  .trend-down { color: var(--red); }
+
+  /* MAIN GRID */
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .grid-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .grid-65-35 {
+    display: grid;
+    grid-template-columns: 1.8fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    animation: fadeIn 0.4s ease both;
+  }
+
+  .card-header {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .card-title {
+    font-family: 'Unbounded', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--text);
+  }
+
+  .card-icon { font-size: 13px; }
+
+  .card-action {
+    margin-left: auto;
+    font-size: 9px;
+    color: var(--accent);
+    cursor: pointer;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .card-body { padding: 20px; }
+
+  /* TENDERS TABLE */
+  .table { width: 100%; border-collapse: collapse; }
+
+  .table th {
+    font-size: 9px;
+    color: var(--text3);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    padding: 6px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .table td {
+    padding: 11px 12px;
+    font-size: 11px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text2);
+    vertical-align: middle;
+  }
+
+  .table tr:last-child td { border-bottom: none; }
+
+  .table tr:hover td { background: rgba(255,255,255,0.02); }
+
+  .tender-name { color: var(--text); font-weight: 600; font-size: 11px; }
+
+  /* STATUS BADGES */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .badge-dot { width: 5px; height: 5px; border-radius: 50%; }
+
+  .badge-active { background: rgba(0,255,136,0.1); color: var(--green); }
+  .badge-active .badge-dot { background: var(--green); box-shadow: 0 0 4px var(--green); }
+
+  .badge-pending { background: rgba(255,140,0,0.1); color: var(--orange); }
+  .badge-pending .badge-dot { background: var(--orange); }
+
+  .badge-done { background: rgba(0,212,255,0.1); color: var(--accent); }
+  .badge-done .badge-dot { background: var(--accent); }
+
+  .badge-paused { background: rgba(122,143,166,0.1); color: var(--text3); }
+  .badge-paused .badge-dot { background: var(--text3); }
+
+  /* PROGRESS BAR */
+  .progress-wrap { display: flex; align-items: center; gap: 10px; }
+
+  .progress-bar {
+    flex: 1;
+    height: 3px;
+    background: var(--bg3);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 1s ease;
+  }
+
+  .progress-pct { font-size: 10px; color: var(--text2); min-width: 32px; text-align: right; }
+
+  /* BRIGADE CARDS */
+  .brigade-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+
+  .brigade-card {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .brigade-card:hover { border-color: var(--border2); }
+
+  .brigade-avatar {
+    width: 36px; height: 36px;
+    border-radius: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+
+  .brigade-info { flex: 1; }
+
+  .brigade-name {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 3px;
+  }
+
+  .brigade-task {
+    font-size: 10px;
+    color: var(--text2);
+    margin-bottom: 6px;
+  }
+
+  .brigade-meta {
+    display: flex;
+    gap: 12px;
+    font-size: 9px;
+    color: var(--text3);
+  }
+
+  .brigade-status { flex-shrink: 0; }
+
+  /* PIPELINE */
+  .pipeline { display: flex; gap: 0; }
+
+  .pipeline-stage {
+    flex: 1;
+    border-right: 1px solid var(--border);
+    padding: 16px;
+  }
+
+  .pipeline-stage:last-child { border-right: none; }
+
+  .stage-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .stage-name {
+    font-size: 9px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--text2);
+    font-weight: 600;
+  }
+
+  .stage-count {
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 7px;
+    color: var(--text2);
+    margin-left: auto;
+  }
+
+  .stage-bar {
+    height: 2px;
+    background: var(--bg3);
+    margin-bottom: 14px;
+    border-radius: 1px;
+  }
+
+  .stage-bar-fill { height: 100%; border-radius: 1px; }
+
+  .pipeline-item {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .pipeline-item:hover { border-color: var(--border2); }
+
+  .pi-address { font-size: 10px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+  .pi-detail { font-size: 9px; color: var(--text3); }
+  .pi-floors { font-size: 9px; color: var(--text2); margin-top: 6px; }
+
+  /* NETWORK MAP */
+  .network-viz {
+    padding: 20px;
+    position: relative;
+    min-height: 200px;
+  }
+
+  .net-flow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0;
+    position: relative;
+  }
+
+  .net-flow::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 60px; right: 60px;
+    height: 1px;
+    background: linear-gradient(90deg, var(--border2), var(--accent), var(--green), var(--border2));
+    opacity: 0.4;
+  }
+
+  .net-node {
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    padding: 12px 16px;
+    text-align: center;
+    position: relative;
+    z-index: 1;
+    min-width: 100px;
+    transition: all 0.2s;
+    cursor: pointer;
+  }
+
+  .net-node:hover { border-color: var(--accent); }
+  .net-node.highlighted { border-color: var(--accent); box-shadow: 0 0 12px rgba(0,212,255,0.15); }
+
+  .net-node-icon { font-size: 20px; margin-bottom: 6px; }
+  .net-node-label { font-size: 9px; color: var(--text3); text-transform: uppercase; letter-spacing: 1px; }
+  .net-node-owner { font-size: 10px; color: var(--text2); margin-top: 4px; font-weight: 600; }
+  .net-node-tag {
+    font-size: 8px;
+    padding: 2px 6px;
+    margin-top: 6px;
+    display: inline-block;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  /* ALERTS */
+  .alerts { display: flex; flex-direction: column; gap: 8px; }
+
+  .alert-item {
+    display: flex;
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--bg3);
+    border-left: 3px solid var(--border2);
+    align-items: flex-start;
+  }
+
+  .alert-item.warn { border-left-color: var(--orange); }
+  .alert-item.info { border-left-color: var(--accent); }
+  .alert-item.success { border-left-color: var(--green); }
+  .alert-item.error { border-left-color: var(--red); }
+
+  .alert-icon { font-size: 14px; margin-top: 1px; flex-shrink: 0; }
+  .alert-content { flex: 1; }
+  .alert-title { font-size: 11px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+  .alert-desc { font-size: 10px; color: var(--text2); }
+  .alert-time { font-size: 9px; color: var(--text3); margin-top: 3px; }
+
+  /* MINI CHARTS */
+  .sparkline { width: 100%; height: 40px; }
+
+  /* TABS */
+  .tabs { display: flex; border-bottom: 1px solid var(--border); }
+
+  .tab {
+    padding: 10px 20px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+    color: var(--text3);
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+    margin-bottom: -1px;
+  }
+
+  .tab:hover { color: var(--text2); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* INTEGRATION SECTION */
+  .integration-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    margin-bottom: 8px;
+  }
+
+  .int-logo {
+    width: 32px; height: 32px;
+    background: var(--bg2);
+    border: 1px solid var(--border2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+
+  .int-info { flex: 1; }
+  .int-name { font-size: 11px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+  .int-desc { font-size: 9px; color: var(--text3); }
+  .int-status { font-size: 9px; letter-spacing: 1px; }
+  .int-connected { color: var(--green); }
+  .int-planned { color: var(--orange); }
+
+  /* SVG Spark */
+  svg.spark path { fill: none; stroke-width: 1.5; }
+
+  .chip {
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: 9px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    font-weight: 700;
+    border: 1px solid currentColor;
+    opacity: 0.8;
+  }
+
+  .chip-blue { color: var(--accent); border-color: var(--accent); }
+  .chip-green { color: var(--green); border-color: var(--green); }
+  .chip-orange { color: var(--orange); border-color: var(--orange); }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="logo">
+      <div class="logo-text">FiberOps</div>
+      <div class="logo-sub">Network CRM v1.0</div>
+    </div>
+    <nav class="nav">
+      <div class="nav-section">Головне</div>
+      <a class="nav-item active" href="#">
+        <span class="nav-icon">◈</span> Дашборд
+      </a>
+      <a class="nav-item" href="#">
+        <span class="nav-icon">◎</span> Тендери
+        <span class="nav-badge">4</span>
+      </a>
+
+      <div class="nav-section" style="margin-top:12px">Будівництво</div>
+      <a class="nav-item" href="#">
+        <span class="nav-icon">⬡</span> Топологія мережі
+      </a>
+      <a class="nav-item" href="#">
+        <span class="nav-icon">▣</span> Будівельники
+        <span class="nav-badge orange">3</span>
+      </a>
+      <a class="nav-item" href="#">
+        <span class="nav-icon">◈</span> Зварники
+      </a>
+      <a class="nav-item" href="#">
+        <span class="nav-icon">◐</span> Склад
+        <span class="nav-badge red">!</span>
+      </a>
+
+      <div class="nav-section" style="margin-top:12px">Підключення</div>
+      <a class="nav-item" href="#">
+        <span class="nav-icon">◉</span> Заявки клієнтів
+        <span class="nav-badge">12</span>
+      </a>
+      <a class="nav-item" href="#">
+        <span class="nav-icon">⬤</span> Реєстр інфраструктури
+      </a>
+      <a class="nav-item" href="#">
+        <span class="nav-icon">◑</span> Клієнти
+      </a>
+
+      <div class="nav-section" style="margin-top:12px">Система</div>
+      <a class="nav-item" href="#">
+        <span class="nav-icon">⟐</span> Інтеграції
+      </a>
+      <a class="nav-item" href="#">
+        <span class="nav-icon">◫</span> Звіти
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <span class="status-dot"></span>Система активна
+      <div style="margin-top:6px; font-size:9px; color: var(--text3)">
+        Останнє оновлення: 2хв тому
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <!-- TOPBAR -->
+    <div class="topbar">
+      <div>
+        <div class="page-title">Дашборд</div>
+      </div>
+      <span class="breadcrumb">/ Загальний огляд</span>
+      <div class="topbar-right">
+        <span class="topbar-date">Березень 2026</span>
+        <button class="btn btn-ghost">Звіт</button>
+        <button class="btn btn-primary">+ Новий тендер</button>
+      </div>
+    </div>
+
+    <!-- CONTENT -->
+    <div class="content">
+
+      <!-- KPI ROW -->
+      <div class="kpi-row">
+        <div class="kpi-card" style="--kpi-color: var(--accent)">
+          <div class="kpi-label">Активні тендери</div>
+          <div class="kpi-value">4</div>
+          <div class="kpi-sub">2 у виконанні · 2 плануються</div>
+        </div>
+        <div class="kpi-card" style="--kpi-color: var(--green); animation-delay:0.1s">
+          <div class="kpi-label">Будинків здано</div>
+          <div class="kpi-value">47</div>
+          <div class="kpi-sub">з 68 запланованих</div>
+          <div class="kpi-trend trend-up">↑ +3 цього тижня</div>
+        </div>
+        <div class="kpi-card" style="--kpi-color: var(--yellow); animation-delay:0.15s">
+          <div class="kpi-label">Щитків активних</div>
+          <div class="kpi-value">184</div>
+          <div class="kpi-sub">порти: 1240 / 1680</div>
+        </div>
+        <div class="kpi-card" style="--kpi-color: var(--orange); animation-delay:0.2s">
+          <div class="kpi-label">Заявок в черзі</div>
+          <div class="kpi-value">12</div>
+          <div class="kpi-sub">підключення клієнтів</div>
+          <div class="kpi-trend trend-up">↑ +5 за тиждень</div>
+        </div>
+        <div class="kpi-card" style="--kpi-color: var(--red); animation-delay:0.25s">
+          <div class="kpi-label">Муфт очікують</div>
+          <div class="kpi-value">8</div>
+          <div class="kpi-sub">зварники не призначені</div>
+          <div class="kpi-trend trend-down">↑ блокер</div>
+        </div>
+      </div>
+
+      <!-- NETWORK LAYER -->
+      <div class="card" style="animation-delay:0.3s; margin-bottom:16px">
+        <div class="card-header">
+          <span class="card-icon">⬡</span>
+          <span class="card-title">Архітектура мережі — хто що контролює</span>
+          <span class="card-action">Детальна схема →</span>
+        </div>
+        <div class="network-viz">
+          <div class="net-flow">
+            <div class="net-node">
+              <div class="net-node-icon">🏢</div>
+              <div class="net-node-label">Магістраль</div>
+              <div class="net-node-owner">Укртелеком</div>
+              <span class="net-node-tag chip chip-orange">Орендована</span>
+            </div>
+            <div style="flex:1; height:1px; background: linear-gradient(90deg, var(--orange), var(--accent)); opacity:0.3; margin: 0 -1px; z-index:0"></div>
+            <div class="net-node highlighted">
+              <div class="net-node-icon">🔌</div>
+              <div class="net-node-label">Вузол / Муфта</div>
+              <div class="net-node-owner">Vodafone</div>
+              <span class="net-node-tag chip chip-blue">Точка входу</span>
+            </div>
+            <div style="flex:1; height:1px; background: linear-gradient(90deg, var(--accent), var(--green)); opacity:0.3; margin: 0 -1px; z-index:0"></div>
+            <div class="net-node highlighted">
+              <div class="net-node-icon">🏗️</div>
+              <div class="net-node-label">Кабель до будинку</div>
+              <div class="net-node-owner">Ваша бригада</div>
+              <span class="net-node-tag chip chip-green">Будівники</span>
+            </div>
+            <div style="flex:1; height:1px; background: linear-gradient(90deg, var(--green), var(--green2)); opacity:0.3; margin: 0 -1px; z-index:0"></div>
+            <div class="net-node highlighted">
+              <div class="net-node-icon">⚡</div>
+              <div class="net-node-label">Муфти / Щитки</div>
+              <div class="net-node-owner">Ваша бригада</div>
+              <span class="net-node-tag chip chip-green">Зварники</span>
+            </div>
+            <div style="flex:1; height:1px; background: linear-gradient(90deg, var(--green2), var(--accent)); opacity:0.3; margin: 0 -1px; z-index:0"></div>
+            <div class="net-node">
+              <div class="net-node-icon">🏠</div>
+              <div class="net-node-label">Квартира</div>
+              <div class="net-node-owner">Vodafone / Клієнт</div>
+              <span class="net-node-tag chip chip-blue">Підключення</span>
+            </div>
+          </div>
+          <div style="margin-top: 16px; display: flex; gap: 20px; justify-content: center; font-size: 9px; color: var(--text3); letter-spacing: 1px;">
+            <span>🟠 Укртелеком — фізична інфраструктура</span>
+            <span>🔵 Vodafone — логіка, трафік, клієнти</span>
+            <span>🟢 Ваша CRM — єдине джерело правди про останню милю</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- MAIN GRID -->
+      <div class="grid-65-35">
+
+        <!-- TENDERS TABLE -->
+        <div class="card" style="animation-delay:0.35s">
+          <div class="card-header">
+            <span class="card-icon">◎</span>
+            <span class="card-title">Тендери</span>
+            <span class="card-action">Всі →</span>
+          </div>
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Об'єкт</th>
+                <th>Статус</th>
+                <th>Прогрес</th>
+                <th>Дедлайн</th>
+                <th>Бригада</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>
+                  <div class="tender-name">ЖК "Сонячний" · Харків</div>
+                  <div style="font-size:9px; color:var(--text3)">14 будинків · 3-9 пов.</div>
+                </td>
+                <td><span class="badge badge-active"><span class="badge-dot"></span>Активний</span></td>
+                <td>
+                  <div class="progress-wrap">
+                    <div class="progress-bar">
+                      <div class="progress-fill" style="width:68%; background: var(--green)"></div>
+                    </div>
+                    <span class="progress-pct">68%</span>
+                  </div>
+                </td>
+                <td style="font-size:10px">15 Квіт</td>
+                <td><span class="chip chip-green" style="font-size:8px">Б-1, З-2</span></td>
+              </tr>
+              <tr>
+                <td>
+                  <div class="tender-name">мкр Північний · Київ</div>
+                  <div style="font-size:9px; color:var(--text3)">8 будинків · 5 пов.</div>
+                </td>
+                <td><span class="badge badge-active"><span class="badge-dot"></span>Активний</span></td>
+                <td>
+                  <div class="progress-wrap">
+                    <div class="progress-bar">
+                      <div class="progress-fill" style="width:35%; background: var(--accent)"></div>
+                    </div>
+                    <span class="progress-pct">35%</span>
+                  </div>
+                </td>
+                <td style="font-size:10px">02 Черв</td>
+                <td><span class="chip chip-blue" style="font-size:8px">Б-2</span></td>
+              </tr>
+              <tr>
+                <td>
+                  <div class="tender-name">вул. Полтавська · Дніпро</div>
+                  <div style="font-size:9px; color:var(--text3)">22 будинки · 9 пов.</div>
+                </td>
+                <td><span class="badge badge-pending"><span class="badge-dot"></span>Планування</span></td>
+                <td>
+                  <div class="progress-wrap">
+                    <div class="progress-bar">
+                      <div class="progress-fill" style="width:0%; background: var(--orange)"></div>
+                    </div>
+                    <span class="progress-pct">0%</span>
+                  </div>
+                </td>
+                <td style="font-size:10px">10 Лип</td>
+                <td><span style="font-size:9px; color:var(--text3)">не призначено</span></td>
+              </tr>
+              <tr>
+                <td>
+                  <div class="tender-name">ЖК "Атлант" · Одеса</div>
+                  <div style="font-size:9px; color:var(--text3)">6 будинків · 12 пов.</div>
+                </td>
+                <td><span class="badge badge-done"><span class="badge-dot"></span>Здано</span></td>
+                <td>
+                  <div class="progress-wrap">
+                    <div class="progress-bar">
+                      <div class="progress-fill" style="width:100%; background: var(--accent)"></div>
+                    </div>
+                    <span class="progress-pct">100%</span>
+                  </div>
+                </td>
+                <td style="font-size:10px">— здано</td>
+                <td><span class="chip chip-blue" style="font-size:8px">Архів</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- ALERTS -->
+        <div class="card" style="animation-delay:0.4s">
+          <div class="card-header">
+            <span class="card-icon">◈</span>
+            <span class="card-title">Сповіщення</span>
+            <span class="card-action">Всі →</span>
+          </div>
+          <div class="card-body">
+            <div class="alerts">
+              <div class="alert-item error">
+                <div class="alert-icon">⚠</div>
+                <div class="alert-content">
+                  <div class="alert-title">Склад: закінчується кабель ОКЛ-8</div>
+                  <div class="alert-desc">Залишок 340м. Потрібно ~800м для тендеру "Північний"</div>
+                  <div class="alert-time">Зараз</div>
+                </div>
+              </div>
+              <div class="alert-item warn">
+                <div class="alert-icon">◎</div>
+                <div class="alert-content">
+                  <div class="alert-title">8 муфт чекають зварника</div>
+                  <div class="alert-desc">ЖК "Сонячний", під'їзди 7–14 не призначені</div>
+                  <div class="alert-time">2 години тому</div>
+                </div>
+              </div>
+              <div class="alert-item success">
+                <div class="alert-icon">✓</div>
+                <div class="alert-content">
+                  <div class="alert-title">Будинок здано: вул. Квіткова 12</div>
+                  <div class="alert-desc">Бригада Б-1. 24 щитки, 96 портів готові</div>
+                  <div class="alert-time">4 години тому</div>
+                </div>
+              </div>
+              <div class="alert-item info">
+                <div class="alert-icon">→</div>
+                <div class="alert-content">
+                  <div class="alert-title">Нова заявка від клієнта</div>
+                  <div class="alert-desc">кв. 47, буд. Квіткова 12 — порт доступний</div>
+                  <div class="alert-time">1 годину тому</div>
+                </div>
+              </div>
+              <div class="alert-item warn">
+                <div class="alert-icon">⟐</div>
+                <div class="alert-content">
+                  <div class="alert-title">Vodafone API: очікує підтвердження</div>
+                  <div class="alert-desc">3 об'єкти готові до передачі в реєстр</div>
+                  <div class="alert-time">Вчора</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PIPELINE + BRIGADES -->
+      <div class="grid-65-35">
+
+        <!-- PIPELINE -->
+        <div class="card" style="animation-delay:0.45s">
+          <div class="card-header">
+            <span class="card-icon">▣</span>
+            <span class="card-title">Конвеєр будівництва — ЖК "Сонячний"</span>
+            <span class="card-action" style="font-size:9px; color:var(--text3)">Тендер активний</span>
+          </div>
+          <div class="pipeline">
+            <div class="pipeline-stage">
+              <div class="stage-header">
+                <span class="stage-name">Будівники</span>
+                <span class="stage-count">3</span>
+              </div>
+              <div class="stage-bar"><div class="stage-bar-fill" style="width:100%; background:var(--green)"></div></div>
+              <div class="pipeline-item">
+                <div class="pi-address">буд. Польова 7</div>
+                <div class="pi-detail">Бригада Б-1 · 9-поверховий</div>
+                <div class="pi-floors">✓ Кабель до 9-го · щитки повішені</div>
+              </div>
+              <div class="pipeline-item">
+                <div class="pi-address">буд. Польова 9</div>
+                <div class="pi-detail">Бригада Б-2 · 5-поверховий</div>
+                <div class="pi-floors">⟳ В роботі · 3 з 5 пов.</div>
+              </div>
+              <div class="pipeline-item">
+                <div class="pi-address">буд. Сонячна 3</div>
+                <div class="pi-detail">Бригада Б-1 · 9-поверховий</div>
+                <div class="pi-floors">⟳ Кабель · 1 з 9 пов.</div>
+              </div>
+            </div>
+
+            <div class="pipeline-stage">
+              <div class="stage-header">
+                <span class="stage-name">Зварники</span>
+                <span class="stage-count">5</span>
+              </div>
+              <div class="stage-bar"><div class="stage-bar-fill" style="width:60%; background:var(--accent)"></div></div>
+              <div class="pipeline-item">
+                <div class="pi-address">буд. Польова 1</div>
+                <div class="pi-detail">Зварник З-1 · 7 муфт</div>
+                <div class="pi-floors">✓ Муфти зварені · щитки розшиті</div>
+              </div>
+              <div class="pipeline-item">
+                <div class="pi-address">буд. Квіткова 12</div>
+                <div class="pi-detail">Зварник З-2 · 4 муфти</div>
+                <div class="pi-floors">⟳ 2 з 4 муфт готові</div>
+              </div>
+              <div class="pipeline-item" style="border-color:var(--red); opacity:0.8">
+                <div class="pi-address">буд. Сонячна 1–2</div>
+                <div class="pi-detail" style="color:var(--red)">⚠ Зварник не призначений</div>
+                <div class="pi-floors">8 муфт чекають</div>
+              </div>
+            </div>
+
+            <div class="pipeline-stage">
+              <div class="stage-header">
+                <span class="stage-name">Підключення</span>
+                <span class="stage-count">4</span>
+              </div>
+              <div class="stage-bar"><div class="stage-bar-fill" style="width:40%; background:var(--yellow)"></div></div>
+              <div class="pipeline-item">
+                <div class="pi-address">Польова 1, кв. 12</div>
+                <div class="pi-detail">Клієнт Іваненко О.</div>
+                <div class="pi-floors">⟳ Виїзд сьогодні 14:00</div>
+              </div>
+              <div class="pipeline-item">
+                <div class="pi-address">Польова 1, кв. 34</div>
+                <div class="pi-detail">Клієнт Петров С.</div>
+                <div class="pi-floors">✓ Підключено · ONT налаштовано</div>
+              </div>
+              <div class="pipeline-item">
+                <div class="pi-address">Квіткова 12, кв. 47</div>
+                <div class="pi-detail">Нова заявка</div>
+                <div class="pi-floors">◯ Порт вільний · призначити дату</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- BRIGADES -->
+        <div class="card" style="animation-delay:0.5s">
+          <div class="card-header">
+            <span class="card-icon">◐</span>
+            <span class="card-title">Бригади зараз</span>
+            <span class="card-action">Всі →</span>
+          </div>
+          <div class="card-body">
+            <div class="brigade-grid">
+              <div class="brigade-card">
+                <div class="brigade-avatar" style="background:rgba(0,255,136,0.1); color:var(--green)">🏗</div>
+                <div class="brigade-info">
+                  <div class="brigade-name">Бригада Б-1 · Будівники</div>
+                  <div class="brigade-task">Польова 7 → Сонячна 3</div>
+                  <div class="brigade-meta">
+                    <span>👥 4 особи</span>
+                    <span>📍 В полі</span>
+                    <span>2 задачі</span>
+                  </div>
+                </div>
+                <div class="brigade-status">
+                  <span class="badge badge-active"><span class="badge-dot"></span>Активна</span>
+                </div>
+              </div>
+
+              <div class="brigade-card">
+                <div class="brigade-avatar" style="background:rgba(0,212,255,0.1); color:var(--accent)">🏗</div>
+                <div class="brigade-info">
+                  <div class="brigade-name">Бригада Б-2 · Будівники</div>
+                  <div class="brigade-task">Польова 9 · 3/5 поверхів</div>
+                  <div class="brigade-meta">
+                    <span>👥 3 особи</span>
+                    <span>📍 В полі</span>
+                  </div>
+                </div>
+                <div class="brigade-status">
+                  <span class="badge badge-active"><span class="badge-dot"></span>Активна</span>
+                </div>
+              </div>
+
+              <div class="brigade-card">
+                <div class="brigade-avatar" style="background:rgba(0,212,255,0.08); color:var(--accent)">⚡</div>
+                <div class="brigade-info">
+                  <div class="brigade-name">Зварник З-1</div>
+                  <div class="brigade-task">Польова 1 · зварювання муфт</div>
+                  <div class="brigade-meta">
+                    <span>👥 2 особи</span>
+                    <span>7 муфт сьогодні</span>
+                  </div>
+                </div>
+                <div class="brigade-status">
+                  <span class="badge badge-active"><span class="badge-dot"></span>Активна</span>
+                </div>
+              </div>
+
+              <div class="brigade-card">
+                <div class="brigade-avatar" style="background:rgba(255,140,0,0.08); color:var(--orange)">⚡</div>
+                <div class="brigade-info">
+                  <div class="brigade-name">Зварник З-2</div>
+                  <div class="brigade-task">Квіткова 12 · 2/4 муфти</div>
+                  <div class="brigade-meta">
+                    <span>👥 2 особи</span>
+                    <span>📍 В полі</span>
+                  </div>
+                </div>
+                <div class="brigade-status">
+                  <span class="badge badge-active"><span class="badge-dot"></span>Активна</span>
+                </div>
+              </div>
+
+              <div class="brigade-card">
+                <div class="brigade-avatar" style="background:rgba(255,204,0,0.08); color:var(--yellow)">🔌</div>
+                <div class="brigade-info">
+                  <div class="brigade-name">Підключення П-1</div>
+                  <div class="brigade-task">Польова 1, кв. 12 · 14:00</div>
+                  <div class="brigade-meta">
+                    <span>👥 1 особа</span>
+                    <span>2 заявки сьогодні</span>
+                  </div>
+                </div>
+                <div class="brigade-status">
+                  <span class="badge badge-pending"><span class="badge-dot"></span>В дорозі</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- INTEGRATIONS -->
+      <div class="card" style="animation-delay:0.55s">
+        <div class="card-header">
+          <span class="card-icon">⟐</span>
+          <span class="card-title">Інтеграції</span>
+          <span style="margin-left: auto; font-size:9px; color:var(--text3)">Ваша CRM — єдине джерело правди про останню милю</span>
+        </div>
+        <div class="card-body" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+          <div>
+            <div style="font-size:9px; color:var(--text3); letter-spacing:2px; text-transform:uppercase; margin-bottom:10px">Активні</div>
+            <div class="integration-row">
+              <div class="int-logo">📡</div>
+              <div class="int-info">
+                <div class="int-name">Vodafone OSS API</div>
+                <div class="int-desc">Передача реєстру інфраструктури після здачі об'єкта</div>
+              </div>
+              <div class="int-status int-connected">● Підключено</div>
+            </div>
+            <div class="integration-row">
+              <div class="int-logo">📦</div>
+              <div class="int-info">
+                <div class="int-name">1С Склад</div>
+                <div class="int-desc">Синхронізація залишків матеріалів</div>
+              </div>
+              <div class="int-status int-connected">● Підключено</div>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:9px; color:var(--text3); letter-spacing:2px; text-transform:uppercase; margin-bottom:10px">Планується</div>
+            <div class="integration-row" style="opacity:0.6">
+              <div class="int-logo">🗺</div>
+              <div class="int-info">
+                <div class="int-name">Vodafone BSS / Order Mgmt</div>
+                <div class="int-desc">Автозакриття заявок клієнтів після підключення</div>
+              </div>
+              <div class="int-status int-planned">◎ Планується</div>
+            </div>
+            <div class="integration-row" style="opacity:0.6">
+              <div class="int-logo">🏢</div>
+              <div class="int-info">
+                <div class="int-name">Укртелеком GIS</div>
+                <div class="int-desc">Прив'язка до трас магістральних кабелів</div>
+              </div>
+              <div class="int-status int-planned">◎ Планується</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /content -->
+  </main>
+</div>
+
+<script>
+  // Animate progress bars on load
+  window.addEventListener('load', () => {
+    document.querySelectorAll('.progress-fill').forEach(el => {
+      const w = el.style.width;
+      el.style.width = '0%';
+      setTimeout(() => { el.style.width = w; }, 300);
+    });
+  });
+
+  // Nav interaction
+  document.querySelectorAll('.nav-item').forEach(item => {
+    item.addEventListener('click', e => {
+      e.preventDefault();
+      document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+      item.classList.add('active');
+    });
+  });
+
+  // Pipeline items click
+  document.querySelectorAll('.pipeline-item').forEach(item => {
+    item.addEventListener('click', () => {
+      item.style.borderColor = 'var(--accent)';
+      setTimeout(() => item.style.borderColor = '', 600);
+    });
+  });
+</script>
+</body>
+</html>

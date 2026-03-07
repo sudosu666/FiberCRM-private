@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FiberOps — Диспетчер / Бригада</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Unbounded:wght@300;400;700;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#07090d;--bg2:#0c0f15;--bg3:#11151d;--bg4:#161c26;
+  --border:#182030;--border2:#1f2d3f;--border3:#28394f;
+  --accent:#00d4ff;--adim:rgba(0,212,255,0.08);
+  --green:#00ff88;--gdim:rgba(0,255,136,0.08);
+  --orange:#ff9500;--odim:rgba(255,149,0,0.08);
+  --red:#ff3355;--rdim:rgba(255,51,85,0.08);
+  --yellow:#ffd60a;--purple:#bf5af2;
+  --text:#d8e8f4;--text2:#5e7a90;--text3:#2e404f;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'JetBrains Mono',monospace;background:var(--bg);color:var(--text);min-height:100vh}
+
+/* ROLE SWITCHER */
+.role-bar{
+  position:fixed;bottom:0;left:0;right:0;
+  background:var(--bg2);border-top:1px solid var(--border2);
+  display:flex;z-index:200;
+}
+.role-btn{
+  flex:1;padding:12px 8px;
+  display:flex;flex-direction:column;align-items:center;gap:4px;
+  cursor:pointer;transition:all .2s;
+  font-family:'JetBrains Mono',monospace;
+  font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;
+  color:var(--text3);border:none;background:transparent;
+}
+.role-btn .ri{font-size:18px;transition:transform .2s}
+.role-btn.active{color:var(--accent)}
+.role-btn.active .ri{transform:translateY(-2px)}
+.role-btn:hover{color:var(--text2)}
+
+/* SCREENS */
+.screen{display:none;min-height:calc(100vh - 56px);padding-bottom:56px}
+.screen.active{display:block}
+
+/* ═══════════════════════════════════════════
+   DISPATCHER SCREEN
+═══════════════════════════════════════════ */
+.disp-topbar{
+  background:var(--bg2);border-bottom:1px solid var(--border);
+  padding:0 24px;height:52px;display:flex;align-items:center;gap:14px;
+  position:sticky;top:0;z-index:50;
+}
+.logo{font-family:'Unbounded',sans-serif;font-size:12px;font-weight:900;color:var(--accent);letter-spacing:2px}
+.sep{width:1px;height:20px;background:var(--border2)}
+.page-lbl{font-size:10px;color:var(--text2);letter-spacing:2px;text-transform:uppercase}
+.ml{margin-left:auto}
+.btn{padding:7px 16px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;
+  letter-spacing:1.5px;text-transform:uppercase;border:none;cursor:pointer;transition:all .15s}
+.btn-p{background:var(--accent);color:var(--bg)}.btn-p:hover{background:#00b8d9}
+.btn-g{background:transparent;color:var(--text2);border:1px solid var(--border2)}.btn-g:hover{border-color:var(--accent);color:var(--accent)}
+
+.disp-layout{display:grid;grid-template-columns:320px 1fr 300px;height:calc(100vh - 52px - 56px);overflow:hidden}
+
+/* LEFT: task queue */
+.dpanel{background:var(--bg2);border-right:1px solid var(--border);overflow-y:auto;display:flex;flex-direction:column}
+.dpanel.right{border-right:none;border-left:1px solid var(--border)}
+.dph{padding:13px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;
+  position:sticky;top:0;background:var(--bg2);z-index:10}
+.dph-title{font-family:'Unbounded',sans-serif;font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase}
+.badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;font-size:9px;font-weight:700;letter-spacing:1px}
+.ba{background:var(--adim);color:var(--accent)}
+.bo{background:var(--odim);color:var(--orange)}
+.bg{background:var(--gdim);color:var(--green)}
+.br{background:var(--rdim);color:var(--red)}
+.bdot{width:5px;height:5px;border-radius:50%}
+
+/* TASK CARD */
+.task-card{
+  padding:14px 18px;border-bottom:1px solid var(--border);
+  cursor:pointer;transition:background .15s;position:relative;
+}
+.task-card:hover{background:var(--bg3)}
+.task-card.selected{background:var(--adim);border-left:3px solid var(--accent)}
+.task-card.selected{padding-left:15px}
+.tc-head{display:flex;align-items:flex-start;gap:8px;margin-bottom:6px}
+.tc-type{font-size:10px;width:26px;flex-shrink:0}
+.tc-addr{font-size:11px;font-weight:600;color:var(--text);flex:1}
+.tc-pri{font-size:9px;padding:2px 6px;font-weight:700;letter-spacing:1px}
+.pri-high{background:var(--rdim);color:var(--red)}
+.pri-med{background:var(--odim);color:var(--orange)}
+.pri-low{background:var(--adim);color:var(--accent)}
+.tc-desc{font-size:10px;color:var(--text2);margin-bottom:8px;line-height:1.4}
+.tc-foot{display:flex;gap:10px;align-items:center}
+.tc-stat{font-size:9px;color:var(--text3)}
+.tc-assign{
+  margin-left:auto;font-size:9px;color:var(--text2);
+  background:var(--bg3);border:1px solid var(--border2);
+  padding:3px 10px;cursor:pointer;transition:all .15s;
+}
+.tc-assign:hover{border-color:var(--accent);color:var(--accent)}
+.tc-assign.assigned{background:var(--gdim);border-color:rgba(0,255,136,0.3);color:var(--green)}
+
+/* CENTER: brigade board */
+.dcenter{overflow-y:auto;padding:20px;background:var(--bg)}
+.section-title{font-size:9px;color:var(--text3);letter-spacing:3px;text-transform:uppercase;margin-bottom:12px}
+
+.brigade-board{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:24px}
+
+.brigade-col{
+  background:var(--bg2);border:1px solid var(--border);
+  display:flex;flex-direction:column;
+}
+.bcol-head{
+  padding:12px 14px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:8px;
+}
+.bcol-icon{font-size:16px}
+.bcol-name{font-family:'Unbounded',sans-serif;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;flex:1}
+.bcol-status{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.status-active{background:var(--green);box-shadow:0 0 6px var(--green);animation:glow 2s infinite}
+.status-idle{background:var(--orange)}
+.status-off{background:var(--text3)}
+@keyframes glow{0%,100%{opacity:1}50%{opacity:.4}}
+
+.bcol-body{padding:10px;flex:1;min-height:120px}
+
+.assigned-task{
+  background:var(--bg3);border:1px solid var(--border2);
+  padding:10px 12px;margin-bottom:8px;
+  border-left:3px solid var(--border3);
+  transition:all .2s;cursor:pointer;
+}
+.assigned-task:hover{border-left-color:var(--accent)}
+.assigned-task.in-progress{border-left-color:var(--orange)}
+.assigned-task.done{border-left-color:var(--green);opacity:.7}
+.at-addr{font-size:10px;font-weight:600;color:var(--text);margin-bottom:3px}
+.at-type{font-size:9px;color:var(--text2);margin-bottom:6px}
+.at-progress{height:2px;background:var(--bg4);border-radius:1px;overflow:hidden}
+.at-progress-fill{height:100%;border-radius:1px;transition:width .8s}
+
+.drop-zone{
+  border:1px dashed var(--border2);padding:14px;
+  text-align:center;font-size:10px;color:var(--text3);
+  transition:all .2s;cursor:pointer;
+  letter-spacing:1px;
+}
+.drop-zone:hover,.drop-zone.drag-over{border-color:var(--accent);color:var(--accent);background:var(--adim)}
+
+.bcol-footer{padding:10px 14px;border-top:1px solid var(--border)}
+.bcol-stats{display:flex;gap:12px;font-size:9px;color:var(--text3)}
+
+/* TIMELINE */
+.timeline-wrap{background:var(--bg2);border:1px solid var(--border);padding:16px 18px}
+.timeline{display:flex;gap:0;overflow-x:auto;padding-bottom:4px}
+.tl-hour{flex-shrink:0;width:60px;border-right:1px solid var(--border);padding:0 6px}
+.tl-hour-label{font-size:8px;color:var(--text3);margin-bottom:6px;text-align:center}
+.tl-block{
+  border-radius:1px;padding:3px 5px;font-size:8px;font-weight:600;
+  cursor:pointer;transition:opacity .15s;letter-spacing:.5px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  margin-bottom:2px;
+}
+.tl-block:hover{opacity:.8}
+.tl-b1{background:rgba(0,212,255,.15);color:var(--accent);border:1px solid rgba(0,212,255,.2)}
+.tl-b2{background:rgba(0,255,136,.12);color:var(--green);border:1px solid rgba(0,255,136,.2)}
+.tl-b3{background:rgba(255,149,0,.12);color:var(--orange);border:1px solid rgba(255,149,0,.2)}
+
+/* RIGHT: task detail */
+.task-detail{padding:18px}
+.td-empty{color:var(--text3);font-size:11px;padding-top:20px;text-align:center}
+.td-header{margin-bottom:16px}
+.td-type-badge{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text2);margin-bottom:6px}
+.td-title{font-family:'Unbounded',sans-serif;font-size:14px;font-weight:700;color:var(--text);line-height:1.3;margin-bottom:8px}
+.td-desc{font-size:11px;color:var(--text2);line-height:1.5;margin-bottom:14px}
+.td-meta{display:flex;flex-direction:column;gap:6px;margin-bottom:16px}
+.td-meta-row{display:flex;justify-content:space-between;font-size:10px;padding:6px 0;border-bottom:1px solid var(--border)}
+.td-meta-row:last-child{border-bottom:none}
+.td-ml{color:var(--text2)}.td-mv{color:var(--text);font-weight:600}
+
+.assign-section{background:var(--bg3);border:1px solid var(--border2);padding:14px;margin-bottom:14px}
+.assign-title{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:10px}
+.assign-options{display:flex;flex-direction:column;gap:6px}
+.assign-opt{
+  display:flex;align-items:center;gap:10px;padding:9px 12px;
+  background:var(--bg2);border:1px solid var(--border);
+  cursor:pointer;transition:all .15s;
+}
+.assign-opt:hover{border-color:var(--accent)}
+.assign-opt.selected-assign{border-color:var(--green);background:var(--gdim)}
+.ao-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.ao-name{font-size:10px;font-weight:600;color:var(--text);flex:1}
+.ao-load{font-size:9px;color:var(--text3)}
+
+.td-actions{display:flex;gap:8px;flex-direction:column}
+
+
+/* ═══════════════════════════════════════════
+   BRIGADE MOBILE SCREEN
+═══════════════════════════════════════════ */
+.mobile-wrap{
+  max-width:420px;margin:0 auto;
+  min-height:calc(100vh - 56px);
+  display:flex;flex-direction:column;
+}
+.mob-topbar{
+  background:var(--bg2);border-bottom:1px solid var(--border);
+  padding:14px 18px;display:flex;align-items:center;gap:12px;
+  position:sticky;top:0;z-index:50;
+}
+.mob-avatar{
+  width:36px;height:36px;border-radius:2px;
+  display:flex;align-items:center;justify-content:center;font-size:16px;
+  flex-shrink:0;
+}
+.mob-name{font-size:12px;font-weight:600;color:var(--text)}
+.mob-role{font-size:9px;color:var(--text2);letter-spacing:1px;text-transform:uppercase;margin-top:1px}
+.mob-time{margin-left:auto;font-size:11px;color:var(--text2)}
+
+/* MOB TABS */
+.mob-tabs{display:flex;background:var(--bg2);border-bottom:1px solid var(--border);position:sticky;top:64px;z-index:40}
+.mob-tab{flex:1;padding:11px 4px;font-size:9px;font-weight:700;letter-spacing:1.5px;
+  text-transform:uppercase;text-align:center;cursor:pointer;color:var(--text3);
+  border-bottom:2px solid transparent;transition:all .15s}
+.mob-tab:hover{color:var(--text2)}.mob-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+.mob-content{flex:1;overflow-y:auto;padding:16px}
+
+/* TODAY TASK */
+.today-task{
+  background:var(--bg2);border:1px solid var(--border);
+  margin-bottom:14px;overflow:hidden;
+  animation:fadeUp .3s ease both;
+}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+
+.tt-header{
+  padding:14px 16px;
+  border-bottom:1px solid var(--border);
+  background:linear-gradient(135deg,rgba(0,212,255,.04),transparent);
+}
+.tt-num{font-size:9px;color:var(--text3);letter-spacing:2px;text-transform:uppercase;margin-bottom:4px}
+.tt-addr{font-family:'Unbounded',sans-serif;font-size:16px;font-weight:700;color:var(--text);margin-bottom:6px;line-height:1.2}
+.tt-desc{font-size:11px;color:var(--text2);line-height:1.5}
+
+.tt-body{padding:14px 16px}
+.tt-steps{display:flex;flex-direction:column;gap:0}
+.step{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);align-items:flex-start}
+.step:last-child{border-bottom:none}
+.step-num{
+  width:24px;height:24px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-size:10px;font-weight:700;flex-shrink:0;margin-top:1px;
+  transition:all .2s;
+}
+.step-num.done{background:var(--green);color:var(--bg)}
+.step-num.active{background:var(--accent);color:var(--bg);box-shadow:0 0 8px rgba(0,212,255,.4)}
+.step-num.wait{background:var(--bg3);border:1px solid var(--border2);color:var(--text3)}
+.step-info{flex:1}
+.step-title{font-size:11px;font-weight:600;margin-bottom:2px}
+.step-title.done{color:var(--text3);text-decoration:line-through}
+.step-title.active{color:var(--text)}
+.step-title.wait{color:var(--text3)}
+.step-hint{font-size:9px;color:var(--text3)}
+.step-check{
+  width:24px;height:24px;border:1px solid var(--border2);background:var(--bg3);
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;transition:all .15s;font-size:11px;flex-shrink:0;
+}
+.step-check:hover{border-color:var(--green);color:var(--green)}
+.step-check.checked{background:var(--gdim);border-color:var(--green);color:var(--green)}
+
+.tt-footer{padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px}
+
+/* DONE TASK card */
+.done-task{
+  background:var(--bg2);border:1px solid var(--border);border-left:3px solid var(--green);
+  padding:12px 14px;margin-bottom:10px;opacity:.7;
+  animation:fadeUp .3s ease both;
+}
+.dt-addr{font-size:11px;font-weight:600;color:var(--text);margin-bottom:2px}
+.dt-time{font-size:9px;color:var(--text3)}
+
+/* PHOTO REPORT */
+.photo-section{animation:fadeUp .3s ease both}
+.photo-title{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:12px}
+.photo-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}
+.photo-thumb{
+  aspect-ratio:1;background:var(--bg3);border:1px solid var(--border2);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:6px;cursor:pointer;transition:all .2s;position:relative;overflow:hidden;
+}
+.photo-thumb:hover{border-color:var(--accent)}
+.photo-thumb.has-photo{border-color:rgba(0,255,136,.3)}
+.photo-thumb .ph-icon{font-size:22px;color:var(--text3)}
+.photo-thumb.has-photo .ph-icon{display:none}
+.photo-thumb .ph-img{
+  position:absolute;inset:0;width:100%;height:100%;
+  object-fit:cover;opacity:0;transition:opacity .3s;
+}
+.photo-thumb.has-photo .ph-img{opacity:1}
+.photo-thumb .ph-label{font-size:9px;color:var(--text3);letter-spacing:1px;text-transform:uppercase}
+.photo-thumb .ph-check{
+  position:absolute;top:6px;right:6px;
+  background:var(--green);color:var(--bg);
+  width:18px;height:18px;border-radius:50%;
+  display:none;align-items:center;justify-content:center;font-size:10px;font-weight:700;
+}
+.photo-thumb.has-photo .ph-check{display:flex}
+
+.report-note{
+  background:var(--bg3);border:1px solid var(--border2);
+  padding:0;width:100%;margin-bottom:12px;
+}
+.report-note textarea{
+  width:100%;background:transparent;border:none;outline:none;
+  color:var(--text);font-family:'JetBrains Mono',monospace;font-size:11px;
+  padding:12px 14px;resize:none;height:80px;line-height:1.5;
+}
+.report-note textarea::placeholder{color:var(--text3)}
+
+/* CHAT */
+.chat-wrap{display:flex;flex-direction:column;height:calc(100vh - 200px);min-height:400px}
+.chat-messages{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding:4px 0 12px}
+.msg{max-width:80%;animation:fadeUp .2s ease both}
+.msg.me{align-self:flex-end}
+.msg.them{align-self:flex-start}
+.msg-bubble{
+  padding:9px 13px;font-size:11px;line-height:1.5;
+}
+.msg.me .msg-bubble{background:var(--adim);border:1px solid rgba(0,212,255,.2);color:var(--text)}
+.msg.them .msg-bubble{background:var(--bg3);border:1px solid var(--border2);color:var(--text)}
+.msg-meta{font-size:8px;color:var(--text3);margin-top:3px;text-align:right}
+.msg.them .msg-meta{text-align:left}
+.msg-sys{
+  text-align:center;font-size:9px;color:var(--text3);
+  padding:6px 12px;letter-spacing:1px;
+  background:var(--bg3);border:1px solid var(--border);
+  align-self:center;
+}
+
+.chat-input-wrap{
+  background:var(--bg2);border:1px solid var(--border2);
+  display:flex;align-items:flex-end;gap:0;margin-top:8px;
+}
+.chat-input{
+  flex:1;background:transparent;border:none;outline:none;
+  color:var(--text);font-family:'JetBrains Mono',monospace;font-size:11px;
+  padding:12px 14px;resize:none;max-height:100px;line-height:1.5;
+}
+.chat-input::placeholder{color:var(--text3)}
+.chat-send{
+  width:44px;height:44px;background:var(--accent);border:none;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;
+  font-size:16px;transition:background .15s;flex-shrink:0;align-self:flex-end;
+}
+.chat-send:hover{background:#00b8d9}
+
+/* MODAL */
+.modal-overlay{
+  position:fixed;inset:0;background:rgba(7,9,13,.85);
+  z-index:500;display:none;align-items:center;justify-content:center;
+  backdrop-filter:blur(3px);
+}
+.modal-overlay.open{display:flex}
+.modal{
+  background:var(--bg2);border:1px solid var(--border2);
+  padding:24px;width:90%;max-width:480px;
+  animation:fadeUp .2s ease;
+}
+.modal-title{font-family:'Unbounded',sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;margin-bottom:16px;color:var(--text)}
+.modal-actions{display:flex;gap:10px;margin-top:20px;justify-content:flex-end}
+
+/* STATUS INDICATOR */
+.live-dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);animation:glow 2s infinite;display:inline-block;margin-right:6px}
+
+/* MATERIAL WARNING */
+.mat-warn{
+  background:var(--rdim);border:1px solid rgba(255,51,85,.3);
+  padding:10px 14px;margin-bottom:14px;display:flex;gap:10px;
+  font-size:10px;color:var(--text2);align-items:center;
+}
+
+::-webkit-scrollbar{width:3px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border2)}
+
+/* UTIL */
+.full-btn{
+  width:100%;padding:12px;font-family:'JetBrains Mono',monospace;
+  font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;
+  border:none;cursor:pointer;transition:all .15s;
+}
+.full-btn-p{background:var(--accent);color:var(--bg)}.full-btn-p:hover{background:#00b8d9}
+.full-btn-g{background:var(--green);color:var(--bg)}.full-btn-g:hover{background:#00d970}
+.full-btn-ghost{background:transparent;color:var(--text2);border:1px solid var(--border2)}.full-btn-ghost:hover{border-color:var(--accent);color:var(--accent)}
+</style>
+</head>
+<body>
+
+<!-- ═══ DISPATCHER SCREEN ═══ -->
+<div id="screenDisp" class="screen active">
+  <div class="disp-topbar">
+    <div class="logo">FiberOps</div>
+    <div class="sep"></div>
+    <div class="page-lbl">Диспетчер</div>
+    <span style="font-size:9px;color:var(--text3)"><span class="live-dot"></span>онлайн · 5 бригад</span>
+    <div class="ml" style="display:flex;gap:10px">
+      <button class="btn btn-g">Фільтр</button>
+      <button class="btn btn-p" onclick="openModal()">+ Нова задача</button>
+    </div>
+  </div>
+
+  <div class="disp-layout">
+
+    <!-- LEFT: task queue -->
+    <div class="dpanel">
+      <div class="dph">
+        <span style="color:var(--orange);font-size:13px">◎</span>
+        <span class="dph-title">Черга задач</span>
+        <span class="badge bo" style="margin-left:auto"><span class="bdot" style="background:var(--orange)"></span>8 нових</span>
+      </div>
+
+      <div id="taskQueue">
+        <!-- tasks rendered by JS -->
+      </div>
+    </div>
+
+    <!-- CENTER: brigade board -->
+    <div class="dcenter">
+      <div class="section-title" style="margin-bottom:14px">Бригади — сьогодні</div>
+      <div class="brigade-board" id="brigadeBoard">
+        <!-- rendered by JS -->
+      </div>
+
+      <!-- TIMELINE -->
+      <div class="section-title">Тайм-лайн на сьогодні</div>
+      <div class="timeline-wrap">
+        <div class="timeline" id="timeline">
+          <!-- rendered by JS -->
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: task detail -->
+    <div class="dpanel right">
+      <div class="dph">
+        <span style="color:var(--accent);font-size:13px">▣</span>
+        <span class="dph-title">Деталі задачі</span>
+      </div>
+      <div class="task-detail" id="taskDetail">
+        <div class="td-empty">← Вибери задачу</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══ BRIGADE MOBILE SCREEN ═══ -->
+<div id="screenBrigade" class="screen">
+  <div class="mobile-wrap">
+    <div class="mob-topbar">
+      <div class="mob-avatar" style="background:var(--adim);color:var(--accent)">🏗</div>
+      <div>
+        <div class="mob-name">Бригада Б-1</div>
+        <div class="mob-role">Будівники · Харків</div>
+      </div>
+      <div class="mob-time" id="mobTime">—</div>
+    </div>
+
+    <div class="mob-tabs">
+      <div class="mob-tab active" onclick="mobTab(this,'mobToday')">Задачі</div>
+      <div class="mob-tab" onclick="mobTab(this,'mobReport')">Звіт</div>
+      <div class="mob-tab" onclick="mobTab(this,'mobChat')">Чат <span id="chatBadge" style="color:var(--red)"> ●</span></div>
+    </div>
+
+    <div class="mob-content">
+
+      <!-- TODAY TAB -->
+      <div id="mobToday">
+        <div class="mat-warn" id="matWarn" style="display:none">
+          <span style="font-size:14px">⚠</span>
+          <span>Увага: на складі закінчується ОКЛ-16. Перед виїздом уточни у завскладом.</span>
+        </div>
+
+        <!-- Active task -->
+        <div class="today-task" id="activeTaskCard">
+          <div class="tt-header">
+            <div class="tt-num">Задача #4 · Активна зараз</div>
+            <div class="tt-addr" id="activeAddr">вул. Сонячна 3</div>
+            <div class="tt-desc" id="activeDesc">Прокладка кабелю від муфти M-02 до будинку. 9 поверхів, 4 під'їзди. Відстань ~80м.</div>
+          </div>
+          <div class="tt-body">
+            <div class="tt-steps" id="taskSteps">
+              <!-- rendered by JS -->
+            </div>
+          </div>
+          <div class="tt-footer">
+            <button class="full-btn full-btn-ghost" style="flex:1" onclick="showMatWarn()">⚠ Нестача матеріалів</button>
+            <button class="full-btn full-btn-p" style="flex:1" onclick="mobTab(document.querySelector('.mob-tab:nth-child(2)'),'mobReport')">Здати звіт</button>
+          </div>
+        </div>
+
+        <!-- Done tasks today -->
+        <div style="font-size:9px;color:var(--text3);letter-spacing:2px;text-transform:uppercase;margin-bottom:10px">Виконано сьогодні</div>
+        <div class="done-task" style="animation-delay:.1s">
+          <div class="dt-addr">✓ вул. Польова 7 — Прокладка кабелю</div>
+          <div class="dt-time">Завершено о 11:42 · 4 год.</div>
+        </div>
+        <div class="done-task" style="animation-delay:.2s">
+          <div class="dt-addr">✓ вул. Польова 9 — Монтаж щитків</div>
+          <div class="dt-time">Завершено о 09:15 · 2 год.</div>
+        </div>
+      </div>
+
+      <!-- REPORT TAB -->
+      <div id="mobReport" style="display:none">
+        <div class="photo-section">
+          <div class="photo-title">Фото-звіт · вул. Сонячна 3</div>
+          <div class="photo-grid">
+            <div class="photo-thumb" id="ph1" onclick="fakePhoto('ph1')">
+              <div class="ph-icon">📷</div>
+              <div class="ph-label">Загальний вигляд</div>
+              <img class="ph-img" src="" alt="">
+              <div class="ph-check">✓</div>
+            </div>
+            <div class="photo-thumb" id="ph2" onclick="fakePhoto('ph2')">
+              <div class="ph-icon">📷</div>
+              <div class="ph-label">Кабель у трасі</div>
+              <img class="ph-img" src="" alt="">
+              <div class="ph-check">✓</div>
+            </div>
+            <div class="photo-thumb" id="ph3" onclick="fakePhoto('ph3')">
+              <div class="ph-icon">📷</div>
+              <div class="ph-label">Щиток · під'їзд 1</div>
+              <img class="ph-img" src="" alt="">
+              <div class="ph-check">✓</div>
+            </div>
+            <div class="photo-thumb" id="ph4" onclick="fakePhoto('ph4')">
+              <div class="ph-icon">📷</div>
+              <div class="ph-label">Щиток · під'їзд 2</div>
+              <img class="ph-img" src="" alt="">
+              <div class="ph-check">✓</div>
+            </div>
+          </div>
+
+          <div class="photo-title">Коментар</div>
+          <div class="report-note">
+            <textarea placeholder="Зауваження, відхилення від плану, нестача матеріалів..."></textarea>
+          </div>
+
+          <div style="display:flex;gap:8px">
+            <button class="full-btn full-btn-ghost" style="flex:1">Зберегти чернетку</button>
+            <button class="full-btn full-btn-g" style="flex:2" onclick="submitReport()">✓ Здати задачу</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- CHAT TAB -->
+      <div id="mobChat" style="display:none">
+        <div class="chat-wrap">
+          <div class="chat-messages" id="chatMessages">
+            <div class="msg-sys">Сьогодні, 07:30</div>
+            <div class="msg them" style="animation-delay:.05s">
+              <div class="msg-bubble">Доброго ранку! Сьогодні починаєте з Сонячна 3. Від муфти M-02, 80м кабелю. Матеріали на складі підготовлені.</div>
+              <div class="msg-meta">Диспетчер · 07:32</div>
+            </div>
+            <div class="msg me" style="animation-delay:.1s">
+              <div class="msg-bubble">Зрозуміло, виїжджаємо о 08:00</div>
+              <div class="msg-meta">Б-1 · 07:45</div>
+            </div>
+            <div class="msg them" style="animation-delay:.15s">
+              <div class="msg-bubble">Добре. Зварники (З-1) будуть після вас о 14:00, намагайтесь закінчити до обіду.</div>
+              <div class="msg-meta">Диспетчер · 07:47</div>
+            </div>
+            <div class="msg me" style="animation-delay:.2s">
+              <div class="msg-bubble">Польова 9 здали, їдемо на Сонячну</div>
+              <div class="msg-meta">Б-1 · 11:44</div>
+            </div>
+            <div class="msg-sys">Зараз</div>
+          </div>
+          <div class="chat-input-wrap">
+            <textarea class="chat-input" id="chatInput" rows="1" placeholder="Повідомлення диспетчеру..." onkeydown="chatKey(event)"></textarea>
+            <button class="chat-send" onclick="sendMsg()">↑</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ═══ WAREHOUSE SCREEN ═══ -->
+<div id="screenWarehouse" class="screen">
+  <div style="max-width:600px;margin:0 auto;padding:20px">
+    <div style="font-family:'Unbounded',sans-serif;font-size:13px;font-weight:700;color:var(--text);margin-bottom:20px;letter-spacing:1px">Завскладом</div>
+
+    <div id="warehouseList"></div>
+
+    <div style="margin-top:20px;background:var(--bg2);border:1px solid var(--border);padding:16px">
+      <div style="font-size:9px;color:var(--text3);letter-spacing:2px;text-transform:uppercase;margin-bottom:12px">Нові заявки від проектувальника</div>
+      <div id="warehouseRequests"></div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ROLE BAR -->
+<div class="role-bar">
+  <button class="role-btn active" onclick="switchRole('Disp',this)">
+    <span class="ri">📋</span>Диспетчер
+  </button>
+  <button class="role-btn" onclick="switchRole('Brigade',this)">
+    <span class="ri">🏗</span>Бригада
+  </button>
+  <button class="role-btn" onclick="switchRole('Warehouse',this)">
+    <span class="ri">📦</span>Завсклад
+  </button>
+</div>
+
+<!-- MODAL: new task -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <div class="modal-title">Нова задача</div>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div>
+          <div style="font-size:9px;color:var(--text2);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:5px">Тип</div>
+          <select style="width:100%;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:11px;padding:8px 10px;outline:none">
+            <option>🏗 Прокладка кабелю</option>
+            <option>⚡ Зварювання муфт</option>
+            <option>🔌 Підключення клієнта</option>
+            <option>▣ Монтаж щитків</option>
+          </select>
+        </div>
+        <div>
+          <div style="font-size:9px;color:var(--text2);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:5px">Пріоритет</div>
+          <select style="width:100%;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:11px;padding:8px 10px;outline:none">
+            <option>Звичайний</option>
+            <option>Терміново</option>
+            <option>Низький</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:9px;color:var(--text2);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:5px">Адреса</div>
+        <input type="text" placeholder="вул. Назва, номер будинку" style="width:100%;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:11px;padding:8px 10px;outline:none">
+      </div>
+      <div>
+        <div style="font-size:9px;color:var(--text2);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:5px">Опис</div>
+        <textarea rows="3" placeholder="Деталі задачі..." style="width:100%;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:11px;padding:8px 10px;outline:none;resize:none"></textarea>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-g" onclick="closeModal()">Скасувати</button>
+      <button class="btn btn-p" onclick="closeModal()">Створити задачу</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── DATA ──────────────────────────────────────────────────────────────────
+const TASKS=[
+  {id:1,type:'🏗',typeName:'Прокладка кабелю',addr:'вул. Сонячна 3',desc:'Від муфти M-02, 9 пов., 4 під., ~80м кабелю ОКЛ-16',priority:'high',status:'new',brigade:null,est:'4 год'},
+  {id:2,type:'⚡',typeName:'Зварювання муфт',addr:'вул. Сонячна 1-2',desc:'8 муфт, під\'їзди 7-14. Зварник не призначений — блокер!',priority:'high',status:'new',brigade:null,est:'6 год'},
+  {id:3,type:'🔌',typeName:'Підключення клієнта',addr:'Польова 1, кв. 12',desc:'Клієнт Іваненко О. Порт вільний на щитку 3-А',priority:'med',status:'new',brigade:null,est:'1 год'},
+  {id:4,type:'▣',typeName:'Монтаж щитків',addr:'вул. Квіткова 12',desc:'Під\'їзди 3-4, 6 щитків, 5-й поверх',priority:'med',status:'new',brigade:null,est:'3 год'},
+  {id:5,type:'🏗',typeName:'Прокладка кабелю',addr:'мкр Північний, буд. 7',desc:'Нова траса від магістралі, 120м ОКЛ-24',priority:'low',status:'new',brigade:null,est:'5 год'},
+  {id:6,type:'🔌',typeName:'Підключення клієнта',addr:'Квіткова 12, кв. 47',desc:'Нова заявка. Порт вільний — готово до виїзду',priority:'med',status:'new',brigade:null,est:'1 год'},
+  {id:7,type:'⚡',typeName:'Зварювання муфт',addr:'мкр Північний, буд. 3',desc:'4 муфти, розшивка щитків по 2 під\'їздах',priority:'low',status:'new',brigade:null,est:'4 год'},
+  {id:8,type:'▣',typeName:'Монтаж щитків',addr:'вул. Польова 7',desc:'Під\'їзд 2, 3 щитки — залишилось після вчора',priority:'med',status:'new',brigade:null,est:'2 год'},
+];
+
+const BRIGADES=[
+  {id:'b1',icon:'🏗',name:'Б-1 Будівники',members:4,status:'active',color:'var(--accent)',
+   tasks:[{addr:'Польова 7',type:'Прокладка',prog:100,status:'done'},{addr:'Польова 9',type:'Монтаж щитків',prog:100,status:'done'},{addr:'Сонячна 3',type:'Прокладка',prog:35,status:'progress'}]},
+  {id:'b2',icon:'🏗',name:'Б-2 Будівники',members:3,status:'active',color:'var(--green)',
+   tasks:[{addr:'Квіткова 12',type:'Монтаж щитків',prog:60,status:'progress'}]},
+  {id:'w1',icon:'⚡',name:'З-1 Зварники',members:2,status:'active',color:'var(--purple)',
+   tasks:[{addr:'Польова 1',type:'Зварка муфт',prog:100,status:'done'},{addr:'Квіткова 12',type:'Зварка + щитки',prog:50,status:'progress'}]},
+  {id:'w2',icon:'⚡',name:'З-2 Зварники',members:2,status:'idle',color:'var(--orange)',
+   tasks:[]},
+  {id:'p1',icon:'🔌',name:'П-1 Підключення',members:1,status:'active',color:'var(--yellow)',
+   tasks:[{addr:'Польова 1, кв.12',type:'Підключення',prog:0,status:'todo'}]},
+];
+
+const STOCK_ITEMS=[
+  {name:'Кабель ОКЛ-16',unit:'м',have:340,min:500,icon:'🔵'},
+  {name:'Кабель ОКЛ-8', unit:'м',have:340,min:200,icon:'🟡'},
+  {name:'Кабель ОКЛ-24',unit:'м',have:800,min:300,icon:'🟢'},
+  {name:'Щитки розп.',  unit:'шт',have:32,min:10,icon:'⬜'},
+  {name:'Муфта FOSC',   unit:'шт',have:8, min:5,icon:'🔘'},
+  {name:'Патч-корди',   unit:'шт',have:120,min:50,icon:'🔌'},
+];
+
+const WAREHOUSE_REQUESTS=[
+  {from:'Проектувальник',task:'ЖК Сонячний · буд. Сонячна 3',items:[{n:'ОКЛ-16',q:'340м'},{n:'Щитки',q:'12шт'},{n:'Муфта FOSC',q:'1шт'}],status:'urgent'},
+  {from:'Бригада Б-1',task:'Сонячна 3 — нестача кабелю',items:[{n:'ОКЛ-16',q:'+200м'}],status:'normal'},
+];
+
+let selTask=null,selBrigade=null;
+const taskAssigns={};
+const stepsDone=new Set();
+const steps=[
+  {title:'Отримати матеріали на складі',hint:'Кабель ОКЛ-16 · 340м, муфта, патч-корди'},
+  {title:'Прокласти кабель по трасі',hint:'Від муфти M-02 → вхід буд., ~80м'},
+  {title:'Завести кабель у будинок',hint:'Через технічне підвальне приміщення'},
+  {title:'Підняти рішер по під\'їздах',hint:'4 під\'їзди, 9 поверхів, висота 25м'},
+  {title:'Повісити щитки',hint:'12 щитків, кожні 5 поверхів'},
+  {title:'Зробити фото-звіт',hint:'Загальний вигляд, кабель, щитки'},
+];
+
+// ── INIT ─────────────────────────────────────────────────────────────────
+window.addEventListener('load',()=>{
+  renderTaskQueue();
+  renderBrigadeBoard();
+  renderTimeline();
+  renderSteps();
+  renderWarehouse();
+  updateClock();
+  setInterval(updateClock,1000);
+});
+
+function updateClock(){
+  const n=new Date();
+  document.getElementById('mobTime').textContent=
+    n.getHours().toString().padStart(2,'0')+':'+n.getMinutes().toString().padStart(2,'0');
+}
+
+// ── TASK QUEUE ────────────────────────────────────────────────────────────
+function renderTaskQueue(){
+  const el=document.getElementById('taskQueue');
+  el.innerHTML=TASKS.map(t=>{
+    const assigned=taskAssigns[t.id];
+    const priClass=t.priority==='high'?'pri-high':t.priority==='med'?'pri-med':'pri-low';
+    const priLabel=t.priority==='high'?'ТЕРМІНОВО':t.priority==='med'?'СЕРЕДНІЙ':'НИЗЬКИЙ';
+    return`<div class="task-card ${selTask===t.id?'selected':''}" onclick="selectTask(${t.id})">
+      <div class="tc-head">
+        <span class="tc-type">${t.type}</span>
+        <span class="tc-addr">${t.addr}</span>
+        <span class="tc-pri ${priClass}">${priLabel}</span>
+      </div>
+      <div class="tc-desc">${t.typeName} · ${t.desc.substring(0,60)}${t.desc.length>60?'…':''}</div>
+      <div class="tc-foot">
+        <span class="tc-stat">⏱ ${t.est}</span>
+        <span class="tc-assign ${assigned?'assigned':''}" onclick="event.stopPropagation();quickAssign(${t.id})">
+          ${assigned?'✓ '+assigned:'Призначити →'}
+        </span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function selectTask(id){
+  selTask=id;
+  renderTaskQueue();
+  renderTaskDetail(TASKS.find(t=>t.id===id));
+}
+
+function quickAssign(tid){
+  const idle=BRIGADES.find(b=>b.status==='idle'||b.tasks.length<2);
+  if(idle){taskAssigns[tid]=idle.name;renderTaskQueue();if(selTask===tid)renderTaskDetail(TASKS.find(t=>t.id===tid));}
+}
+
+function renderTaskDetail(t){
+  if(!t){document.getElementById('taskDetail').innerHTML='<div class="td-empty">← Вибери задачу</div>';return}
+  const assigned=taskAssigns[t.id];
+  document.getElementById('taskDetail').innerHTML=`
+    <div class="td-header">
+      <div class="td-type-badge">${t.type} ${t.typeName}</div>
+      <div class="td-title">${t.addr}</div>
+      <div class="td-desc">${t.desc}</div>
+    </div>
+    <div class="td-meta">
+      <div class="td-meta-row"><span class="td-ml">Пріоритет</span><span class="td-mv" style="color:${t.priority==='high'?'var(--red)':t.priority==='med'?'var(--orange)':'var(--accent)'}">${t.priority==='high'?'Терміново':t.priority==='med'?'Середній':'Низький'}</span></div>
+      <div class="td-meta-row"><span class="td-ml">Орієнтовно</span><span class="td-mv">${t.est}</span></div>
+      <div class="td-meta-row"><span class="td-ml">Статус</span><span class="td-mv">${assigned?'Призначено':'Нова'}</span></div>
+    </div>
+    <div class="assign-section">
+      <div class="assign-title">Призначити бригаду</div>
+      <div class="assign-options">
+        ${BRIGADES.map(b=>`
+          <div class="assign-opt ${assigned===b.name?'selected-assign':''}" onclick="assignTo(${t.id},'${b.name}')">
+            <div class="ao-dot" style="background:${b.color};box-shadow:0 0 5px ${b.color}"></div>
+            <span class="ao-name">${b.icon} ${b.name}</span>
+            <span class="ao-load">${b.status==='active'?b.tasks.length+' задач':b.status==='idle'?'Вільна':'Офлайн'}</span>
+          </div>`).join('')}
+      </div>
+    </div>
+    <div class="td-actions">
+      <button class="btn btn-p" style="width:100%" onclick="assignTo(${t.id},selBrigade||'Б-1 Будівники')">Призначити</button>
+      <button class="btn btn-g" style="width:100%;background:transparent;color:var(--text2);border:1px solid var(--border2)" onclick="selectTask(null)">Скасувати</button>
+    </div>`;
+}
+
+function assignTo(tid,bname){
+  taskAssigns[tid]=bname;
+  selBrigade=bname;
+  renderTaskQueue();
+  renderTaskDetail(TASKS.find(t=>t.id===tid));
+  renderBrigadeBoard();
+}
+
+// ── BRIGADE BOARD ──────────────────────────────────────────────────────────
+function renderBrigadeBoard(){
+  document.getElementById('brigadeBoard').innerHTML=BRIGADES.map(b=>{
+    const sdot=b.status==='active'?'status-active':b.status==='idle'?'status-idle':'status-off';
+    const tasks=b.tasks.map(t=>`
+      <div class="assigned-task ${t.status}">
+        <div class="at-addr">${t.addr}</div>
+        <div class="at-type">${t.type}</div>
+        <div class="at-progress"><div class="at-progress-fill" style="width:${t.prog}%;background:${t.prog===100?'var(--green)':'var(--accent)'}"></div></div>
+      </div>`).join('');
+    const newTasks=Object.entries(taskAssigns).filter(([,v])=>v===b.name).map(([k])=>TASKS.find(t=>t.id==k)).filter(Boolean);
+    const ntHtml=newTasks.map(t=>`
+      <div class="assigned-task">
+        <div class="at-addr">${t.type} ${t.addr}</div>
+        <div class="at-type" style="color:var(--orange)">Нова · чекає</div>
+        <div class="at-progress"><div class="at-progress-fill" style="width:0%;background:var(--orange)"></div></div>
+      </div>`).join('');
+    return`<div class="brigade-col">
+      <div class="bcol-head">
+        <span class="bcol-icon">${b.icon}</span>
+        <span class="bcol-name" style="color:${b.color}">${b.name}</span>
+        <div class="bcol-dot ${sdot}"></div>
+      </div>
+      <div class="bcol-body">
+        ${tasks}${ntHtml}
+        <div class="drop-zone" onclick="quickAssign2('${b.id}')">+ Додати задачу</div>
+      </div>
+      <div class="bcol-footer">
+        <div class="bcol-stats">
+          <span>👥 ${b.members}</span>
+          <span>${b.status==='active'?'<span style="color:var(--green)">В роботі</span>':b.status==='idle'?'<span style="color:var(--orange)">Вільна</span>':'Офлайн'}</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function quickAssign2(bid){
+  const unassigned=TASKS.find(t=>!taskAssigns[t.id]);
+  const b=BRIGADES.find(br=>br.id===bid);
+  if(unassigned&&b){assignTo(unassigned.id,b.name);}
+}
+
+// ── TIMELINE ──────────────────────────────────────────────────────────────
+function renderTimeline(){
+  const hours=[8,9,10,11,12,13,14,15,16,17,18];
+  const blocks={
+    8:[{b:'tl-b1',label:'Б-1 Польова 7',w:2},{b:'tl-b2',label:'Б-2 Квіткова',w:2}],
+    10:[{b:'tl-b1',label:'Б-1 Польова 9',w:1.5}],
+    11:[{b:'tl-b1',label:'Б-1 Сонячна 3',w:3},{b:'tl-b3',label:'З-1 Польова',w:2}],
+    14:[{b:'tl-b2',label:'Б-2 Щитки',w:2},{b:'tl-b3',label:'З-1 Квіткова',w:2}],
+    16:[{b:'tl-b1',label:'Б-1 →наст.',w:1}],
+  };
+  document.getElementById('timeline').innerHTML=hours.map(h=>`
+    <div class="tl-hour">
+      <div class="tl-hour-label">${h}:00</div>
+      ${(blocks[h]||[]).map(b=>`<div class="tl-block ${b.b}" style="width:${b.w*54}px">${b.label}</div>`).join('')}
+    </div>`).join('');
+}
+
+// ── BRIGADE STEPS ──────────────────────────────────────────────────────────
+function renderSteps(){
+  const firstActive=steps.findIndex((_,i)=>!stepsDone.has(i));
+  document.getElementById('taskSteps').innerHTML=steps.map((s,i)=>{
+    const done=stepsDone.has(i);
+    const active=!done&&i===firstActive;
+    const cls=done?'done':active?'active':'wait';
+    return`<div class="step">
+      <div class="step-num ${cls}">${done?'✓':i+1}</div>
+      <div class="step-info">
+        <div class="step-title ${cls}">${s.title}</div>
+        <div class="step-hint">${s.hint}</div>
+      </div>
+      ${!done?`<div class="step-check ${active?'':'inactive'}" onclick="doneStep(${i})">✓</div>`:''}
+    </div>`;
+  }).join('');
+}
+
+function doneStep(i){
+  stepsDone.add(i);
+  renderSteps();
+}
+
+// ── MOB TABS ──────────────────────────────────────────────────────────────
+function mobTab(el,tab){
+  document.querySelectorAll('.mob-tab').forEach(t=>t.classList.remove('active'));
+  if(typeof el==='string') el=document.querySelector(`.mob-tab:nth-child(${tab==='mobToday'?1:tab==='mobReport'?2:3})`);
+  el.classList.add('active');
+  ['mobToday','mobReport','mobChat'].forEach(t=>document.getElementById(t).style.display='none');
+  document.getElementById(tab).style.display='block';
+  if(tab==='mobChat') document.getElementById('chatBadge').style.display='none';
+}
+
+// ── CHAT ──────────────────────────────────────────────────────────────────
+function chatKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMsg();}}
+function sendMsg(){
+  const inp=document.getElementById('chatInput');
+  const txt=inp.value.trim();
+  if(!txt)return;
+  const msgs=document.getElementById('chatMessages');
+  const div=document.createElement('div');
+  div.className='msg me';
+  div.innerHTML=`<div class="msg-bubble">${txt}</div><div class="msg-meta">Б-1 · зараз</div>`;
+  msgs.appendChild(div);
+  inp.value='';
+  msgs.scrollTop=msgs.scrollHeight;
+  // fake reply
+  setTimeout(()=>{
+    const r=document.createElement('div');r.className='msg them';
+    r.innerHTML=`<div class="msg-bubble">Зрозуміло, дякую за оновлення!</div><div class="msg-meta">Диспетчер · зараз</div>`;
+    msgs.appendChild(r);msgs.scrollTop=msgs.scrollHeight;
+  },1200);
+}
+
+// ── PHOTO ──────────────────────────────────────────────────────────────────
+const photoColors=['#1a3a2a','#1a2a3a','#2a1a3a','#3a2a1a'];
+function fakePhoto(id){
+  const el=document.getElementById(id);
+  const idx=parseInt(id.replace('ph',''))-1;
+  // draw a fake "photo" as colored canvas
+  const c=document.createElement('canvas');c.width=200;c.height=200;
+  const ctx=c.getContext('2d');
+  ctx.fillStyle=photoColors[idx];ctx.fillRect(0,0,200,200);
+  ctx.fillStyle='rgba(0,212,255,0.3)';
+  for(let i=0;i<5;i++){ctx.fillRect(Math.random()*160,Math.random()*160,Math.random()*40+10,Math.random()*40+10);}
+  ctx.fillStyle='rgba(0,255,136,0.5)';ctx.font='bold 30px monospace';ctx.fillText('📷',80,110);
+  el.querySelector('.ph-img').src=c.toDataURL();
+  el.classList.add('has-photo');
+}
+
+function submitReport(){
+  alert('✓ Звіт здано!\n\nЗадача «вул. Сонячна 3» відмічена як виконана.\nДиспетчер та зварники отримали сповіщення.');
+}
+
+// ── WAREHOUSE ──────────────────────────────────────────────────────────────
+function renderWarehouse(){
+  document.getElementById('warehouseList').innerHTML=STOCK_ITEMS.map(s=>{
+    const ok=s.have>=s.min;
+    const pct=Math.min(s.have/Math.max(s.min*1.5,s.have),1);
+    const col=ok?'var(--green)':s.have>0?'var(--orange)':'var(--red)';
+    return`<div style="background:var(--bg2);border:1px solid var(--border);padding:12px 16px;margin-bottom:8px;display:flex;align-items:center;gap:12px">
+      <span style="font-size:18px">${s.icon}</span>
+      <div style="flex:1">
+        <div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:4px">${s.name}</div>
+        <div style="height:2px;background:var(--bg3);border-radius:1px;overflow:hidden">
+          <div style="width:${Math.round(pct*100)}%;height:100%;background:${col};border-radius:1px"></div>
+        </div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:13px;font-weight:700;color:${col}">${s.have} ${s.unit}</div>
+        <div style="font-size:9px;color:var(--text3)">мін: ${s.min}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('warehouseRequests').innerHTML=WAREHOUSE_REQUESTS.map(r=>`
+    <div style="background:var(--bg3);border:1px solid var(--border2);border-left:3px solid ${r.status==='urgent'?'var(--red)':'var(--orange)'};padding:12px 14px;margin-bottom:10px">
+      <div style="font-size:10px;font-weight:600;color:var(--text);margin-bottom:3px">від: ${r.from}</div>
+      <div style="font-size:9px;color:var(--text2);margin-bottom:8px">${r.task}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+        ${r.items.map(i=>`<span style="background:var(--adim);border:1px solid rgba(0,212,255,.2);color:var(--accent);font-size:9px;padding:2px 8px">${i.n} · ${i.q}</span>`).join('')}
+      </div>
+      <div style="display:flex;gap:8px">
+        <button onclick="this.parentElement.parentElement.style.opacity='.4'" style="flex:1;padding:7px;background:var(--gdim);border:1px solid rgba(0,255,136,.3);color:var(--green);font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;cursor:pointer">✓ Видати</button>
+        <button style="flex:1;padding:7px;background:transparent;border:1px solid var(--border2);color:var(--text2);font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;cursor:pointer">Частково</button>
+      </div>
+    </div>`).join('');
+}
+
+// ── ROLE SWITCH ───────────────────────────────────────────────────────────
+function switchRole(role,btn){
+  document.querySelectorAll('.role-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById('screen'+role).classList.add('active');
+}
+
+// ── MODAL ─────────────────────────────────────────────────────────────────
+function openModal(){document.getElementById('modal').classList.add('open')}
+function closeModal(){document.getElementById('modal').classList.remove('open')}
+document.getElementById('modal').addEventListener('click',e=>{if(e.target===document.getElementById('modal'))closeModal()})
+
+function showMatWarn(){
+  const el=document.getElementById('matWarn');
+  el.style.display='flex';
+  setTimeout(()=>el.style.display='none',5000);
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FiberOps — Диспетчер</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Unbounded:wght@300;400;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/dispatch.css">
+</head>
+<body>
+<div class="page-shell">
+  <nav class="portal-nav">
+    <a href="../index.html">Портал FiberOps</a>
+    <a class="active" href="fiber-dispatcher.html">Диспетчер</a>
+    <a href="fiber-brigade.html">Бригада</a>
+    <a href="fiber-warehouse.html">Склад</a>
+    <a href="fiber-designer.html">Дизайнер</a>
+  </nav>
+  <header class="page-header">
+    <h1>Dispatch Center</h1>
+    <p>Мониторинг задач, бригад и ресурсов на одном экране.</p>
+  </header>
+  <div class="content-shell">
+    <div class="disp-topbar">
+      <div class="logo">FiberOps</div>
+      <div class="sep"></div>
+      <div class="page-lbl">Диспетчер</div>
+      <span style="font-size:9px;color:var(--text3)"><span class="live-dot"></span>онлайн · 5 бригад</span>
+      <div class="ml" style="display:flex;gap:10px">
+        <button class="btn btn-g" onclick="showMatWarn()">Фільтр</button>
+        <button class="btn btn-p" onclick="openModal()">+ Нова задача</button>
+      </div>
+    </div>
+    <div class="disp-layout">
+      <div class="dpanel" style="min-height:100%">
+        <div class="dph">
+          <span style="color:var(--orange);font-size:13px">◎</span>
+          <span class="dph-title">Черга задач</span>
+          <span class="badge bo" style="margin-left:auto"><span class="bdot" style="background:var(--orange)"></span>8 нових</span>
+        </div>
+        <div id="taskQueue"></div>
+      </div>
+      <div class="dcenter">
+        <div class="section-title" style="margin-bottom:14px">Бригади — сьогодні</div>
+        <div class="brigade-board" id="brigadeBoard"></div>
+        <div class="section-title">Тайм-лайн на сьогодні</div>
+        <div class="timeline-wrap">
+          <div class="timeline" id="timeline"></div>
+        </div>
+      </div>
+      <div class="dpanel right">
+        <div class="dph">
+          <span style="color:var(--accent);font-size:13px">▣</span>
+          <span class="dph-title">Деталі задачі</span>
+        </div>
+        <div class="task-detail" id="taskDetail"></div>
+      </div>
+    </div>
+    <div class="section-shell">
+      <div class="section-card">
+        <h3>Pipeline контролю</h3>
+        <p>Переключайтесь на очередь задач, стройте график бригад и сверяйтесь со складами без лишнего контекста.</p>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <div class="modal-title">Нова задача</div>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div>
+          <div style="font-size:9px;color:var(--text2);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:5px">Тип</div>
+          <select style="width:100%;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:11px;padding:8px 10px;outline:none">
+            <option>🏗 Прокладка кабелю</option>
+            <option>⚡ Зварювання муфт</option>
+            <option>🔌 Підключення клієнта</option>
+            <option>▣ Монтаж щитків</option>
+          </select>
+        </div>
+        <div>
+          <div style="font-size:9px;color:var(--text2);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:5px">Пріоритет</div>
+          <select style="width:100%;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:11px;padding:8px 10px;outline:none">
+            <option>Звичайний</option>
+            <option>Терміново</option>
+            <option>Низький</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:9px;color:var(--text2);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:5px">Адреса</div>
+        <input type="text" placeholder="вул. Назва, номер будинку" style="width:100%;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:11px;padding:8px 10px;outline:none">
+      </div>
+      <div>
+        <div style="font-size:9px;color:var(--text2);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:5px">Опис</div>
+        <textarea rows="3" placeholder="Деталі задачі..." style="width:100%;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:11px;padding:8px 10px;outline:none;resize:none"></textarea>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-g" onclick="closeModal()">Відмінити</button>
+      <button class="btn btn-p" onclick="closeModal()">Зберегти</button>
+    </div>
+  </div>
+</div>
+<script src="assets/dispatch.js"></script>
+</body>
+</html>
