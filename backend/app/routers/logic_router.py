@@ -48,22 +48,23 @@ router = APIRouter(prefix='/api')
 UPLOAD_DIR = Path(__file__).resolve().parents[1] / "frontend" / "static" / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+REPORT_MAX_UPLOAD_BYTES = 300 * 1024
 
 
-def _decode_photo_payload(raw_data: str) -> bytes:
+def _decode_photo_payload(raw_data: str, max_bytes: int) -> bytes:
     header, _, payload = raw_data.partition(',')
     if not payload:
         payload = header
     if not payload:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="photo_data is empty")
     estimated_size = (len(payload) * 3) // 4
-    if estimated_size > settings.max_upload_bytes:
+    if estimated_size > max_bytes:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="photo_data exceeds max size")
     try:
         decoded = base64.b64decode(payload, validate=True)
     except (binascii.Error, ValueError) as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail='photo_data should be base64') from exc
-    if len(decoded) > settings.max_upload_bytes:
+    if len(decoded) > max_bytes:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="photo_data exceeds max size")
     return decoded
 
@@ -188,7 +189,7 @@ async def create_task_report(
     builder = await _resolve_builder_user(session, body.brigade_id)
     if not builder:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail='No builder user available')
-    photo_data = _decode_photo_payload(body.photo_data)
+    photo_data = _decode_photo_payload(body.photo_data, max_bytes=REPORT_MAX_UPLOAD_BYTES)
     photo_url = _build_photo_path(body.photo_filename, photo_data)
     brigade_name = body.brigade_name or builder.name
     report = TaskReport(

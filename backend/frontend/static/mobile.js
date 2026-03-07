@@ -29,6 +29,61 @@ const chatStatus = qs('#chatStatus');
 
 let socket;
 let socketConnected = false;
+const PHOTO_TARGET_BYTES = 200 * 1024;
+const PHOTO_FALLBACK_QUALITY = 0.25;
+
+function dataUrlSizeBytes(dataUrl) {
+  const payload = dataUrl.split(',')[1] ?? '';
+  return Math.floor((payload.length * 3) / 4);
+}
+
+async function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+async function compressPhotoFile(file) {
+  const sourceDataUrl = await readFileAsDataUrl(file);
+  if (typeof sourceDataUrl !== 'string') {
+    return { dataUrl: null, filename: file.name };
+  }
+  if (!file.type.startsWith('image/')) {
+    return { dataUrl: sourceDataUrl, filename: file.name };
+  }
+
+  const image = await new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = sourceDataUrl;
+  });
+
+  const canvas = document.createElement('canvas');
+  canvas.width = image.width;
+  canvas.height = image.height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return { dataUrl: sourceDataUrl, filename: file.name };
+  }
+  ctx.drawImage(image, 0, 0);
+
+  let quality = 0.85;
+  let best = canvas.toDataURL('image/jpeg', quality);
+  while (dataUrlSizeBytes(best) > PHOTO_TARGET_BYTES && quality > PHOTO_FALLBACK_QUALITY) {
+    quality = Math.max(PHOTO_FALLBACK_QUALITY, quality - 0.1);
+    best = canvas.toDataURL('image/jpeg', quality);
+    if (quality === PHOTO_FALLBACK_QUALITY) {
+      break;
+    }
+  }
+
+  const safeName = file.name.replace(/\.[^.]+$/, '') || 'photo';
+  return { dataUrl: best, filename: `${safeName}.jpg` };
+}
 
 async function loadTasks() {
   try {
@@ -128,17 +183,17 @@ function renderPhotos() {
 
 function handlePhotoUpload(event) {
   const files = Array.from(event.target.files);
-  files.forEach((file) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result;
+  files.forEach(async (file) => {
+    try {
+      const { dataUrl, filename } = await compressPhotoFile(file);
       if (typeof dataUrl !== 'string') return;
       const label = new Date().toLocaleTimeString();
-      state.photos.unshift({ name: file.name, url: dataUrl, label });
+      state.photos.unshift({ name: filename, url: dataUrl, label });
       renderPhotos();
-      persistPhotoReport(file.name, dataUrl, label);
-    };
-    reader.readAsDataURL(file);
+      persistPhotoReport(filename, dataUrl, label);
+    } catch (error) {
+      console.warn('photo compression failed', error);
+    }
   });
   event.target.value = '';
 }
