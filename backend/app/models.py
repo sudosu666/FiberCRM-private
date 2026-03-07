@@ -263,10 +263,13 @@ class TaskReport(SQLModel, table=True):
     user_id: UUID = Field(foreign_key="users.id", nullable=False)
     photo_url: Optional[str] = None
     comment: Optional[str] = None
+    brigade_id: Optional[UUID] = Field(default=None, foreign_key="brigades.id")
+    brigade_name: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     task: Task = Relationship(back_populates="reports")
     user: User = Relationship(back_populates="task_reports")
+    brigade: Optional[Brigade] = Relationship()
 
 
 class StockItem(SQLModel, table=True):

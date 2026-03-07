@@ -2,13 +2,16 @@ from datetime import datetime, timedelta
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .auth import get_password_hash
 from .models import (
     Brigade,
     Building,
     Fiber,
+    FiberStatus,
     Muffle,
     Panel,
     Port,
+    PortStatus,
     RequestStatus,
     StockItem,
     Task,
@@ -16,17 +19,34 @@ from .models import (
     TaskType,
     Tender,
     TenderStatus,
+    User,
+    UserRole,
     WarehouseRequest,
     WarehouseRequestItem,
     TaskStep,
-    FiberStatus,
-    PortStatus,
 )
 
 async def seed_demo_data(session: AsyncSession) -> None:
     existing = await session.scalar(select(func.count()).select_from(Tender))
     if existing and existing > 0:
         return
+
+    dispatcher = User(
+        name='Олена Диспетчер',
+        phone='+38000000001',
+        email='dispatcher@fiberops.local',
+        role=UserRole.Dispatcher,
+        password_hash=get_password_hash('dispatcher'),
+    )
+    builder = User(
+        name='BRG-03 Foreman',
+        phone='+38000000002',
+        email='builder@fiberops.local',
+        role=UserRole.Builder,
+        password_hash=get_password_hash('builder'),
+    )
+    session.add_all([dispatcher, builder])
+    await session.flush()
 
     tender = Tender(
         name='ЖК Сонячний',
@@ -87,6 +107,8 @@ async def seed_demo_data(session: AsyncSession) -> None:
     ]
     session.add_all(brigades)
     await session.flush()
+    if brigades:
+        brigades[0].foreman_id = builder.id
 
     tasks = [
         Task(

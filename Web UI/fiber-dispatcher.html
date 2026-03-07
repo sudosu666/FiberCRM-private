@@ -62,6 +62,46 @@
         <p>Переключайтесь на очередь задач, стройте график бригад и сверяйтесь со складами без лишнего контекста.</p>
       </div>
     </div>
+
+    <div class="insights-shell">
+      <div class="metrics-grid" id="fieldMetrics">
+        <article class="metric-card">
+          <div class="metric-label">Задач в роботі</div>
+          <div class="metric-value" id="metricActiveTasks">—</div>
+          <div class="metric-meta" id="metricTaskMeta">відкрито · чекають</div>
+        </article>
+        <article class="metric-card">
+          <div class="metric-label">Кроки</div>
+          <div class="metric-value" id="metricStepsValue">0</div>
+          <div class="metric-meta" id="metricStepsMeta">0 / 0</div>
+        </article>
+        <article class="metric-card">
+          <div class="metric-label">Фото-звіти</div>
+          <div class="metric-value" id="metricPhotoValue">0</div>
+          <div class="metric-meta" id="metricPhotoMeta">остання → –</div>
+        </article>
+        <article class="metric-card">
+          <div class="metric-label">Останній чат</div>
+          <div class="metric-value" id="metricChatValue">Поки що тиша</div>
+          <div class="metric-meta" id="metricChatMeta">оновлення реального часу</div>
+        </article>
+      </div>
+      <div class="chat-card">
+        <div class="chat-card-header">
+          <div>
+            <div class="metric-label">Field Ops чат</div>
+            <h3>Живі повідомлення</h3>
+          </div>
+          <span class="badge bg" id="chatBadge">live</span>
+        </div>
+        <div class="chat-messages" id="fieldChatMessages">
+          <div class="placeholder">Почекайте, поки бригада відповість.</div>
+        </div>
+        <div class="notification-list" id="fieldNotifications">
+          <div class="placeholder">Ніяких сповіщень поки що.</div>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 <div class="modal-overlay" id="modal">

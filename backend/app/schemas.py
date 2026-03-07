@@ -79,6 +79,41 @@ class TaskRead(TaskBase):
     created_at: datetime
     completed_at: Optional[datetime]
 
+
+class TaskReportCreate(BaseModel):
+    photo_filename: str
+    photo_data: str
+    comment: Optional[str] = None
+    brigade_id: Optional[UUID] = None
+    brigade_name: Optional[str] = None
+
+
+class TaskReportRead(BaseModel):
+    id: UUID
+    task_id: UUID
+    user_id: Optional[UUID]
+    brigade_id: Optional[UUID]
+    brigade_name: Optional[str]
+    photo_url: str
+    comment: Optional[str]
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class FieldMetrics(BaseModel):
+    total_tasks: int
+    assigned_tasks: int
+    in_progress_tasks: int
+    completed_tasks: int
+    steps_done: int
+    steps_total: int
+    photo_reports: int
+    recent_chat: Optional[str]
+    recent_photo_url: Optional[str]
+
+
     class Config:
         orm_mode = True
 

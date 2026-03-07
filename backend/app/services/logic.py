@@ -2,7 +2,7 @@ from math import ceil
 from typing import List, Optional
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -13,11 +13,14 @@ from ..models import (
     FiberStatus,
     InfraStatus,
     Muffle,
+    Message,
     Port,
     PortStatus,
     StockItem,
     Task,
+    TaskReport,
     TaskStatus,
+    TaskStep,
     Tender,
     TenderStatus,
     WarehouseRequest,
@@ -197,6 +200,48 @@ async def load_warehouse_requests(session: AsyncSession) -> List[WarehouseReques
             ) for item in req.items],
         ))
     return records
+
+
+async def load_field_metrics(session: AsyncSession) -> FieldMetrics:
+    total_tasks = await session.scalar(select(func.count()).select_from(Task))
+    assigned_tasks = await session.scalar(
+        select(func.count()).select_from(Task).where(Task.status == TaskStatus.assigned)
+    )
+    in_progress_tasks = await session.scalar(
+        select(func.count()).select_from(Task).where(Task.status == TaskStatus.in_progress)
+    )
+    completed_tasks = await session.scalar(
+        select(func.count()).select_from(Task).where(Task.status == TaskStatus.completed)
+    )
+    steps_total = await session.scalar(select(func.count()).select_from(TaskStep))
+    steps_done = await session.scalar(
+        select(func.count()).select_from(TaskStep).where(TaskStep.is_done == True)
+    )
+    photo_reports = await session.scalar(select(func.count()).select_from(TaskReport))
+
+    msg_stmt = select(Message).options(selectinload(Message.sender)).order_by(Message.created_at.desc()).limit(1)
+    recent_message = (await session.execute(msg_stmt)).scalars().first()
+    recent_chat = None
+    if recent_message:
+        sender = recent_message.sender.name if recent_message.sender else 'Поле'
+        recent_chat = f"{sender}: {recent_message.body or '…'}"
+
+    recent_report = await session.scalar(
+        select(TaskReport).order_by(TaskReport.created_at.desc()).limit(1)
+    )
+    recent_photo_url = recent_report.photo_url if recent_report else None
+
+    return FieldMetrics(
+        total_tasks=total_tasks or 0,
+        assigned_tasks=assigned_tasks or 0,
+        in_progress_tasks=in_progress_tasks or 0,
+        completed_tasks=completed_tasks or 0,
+        steps_done=steps_done or 0,
+        steps_total=steps_total or 0,
+        photo_reports=photo_reports or 0,
+        recent_chat=recent_chat,
+        recent_photo_url=recent_photo_url,
+    )
 
 
 async def load_network_topology(session: AsyncSession) -> List[NetworkMuffleRead]:

@@ -195,6 +195,111 @@ body{font-family:'JetBrains Mono',monospace;background:var(--bg);color:var(--tex
 .td-actions{display:flex;gap:8px;flex-direction:column}
 
 
+.insights-shell{
+  display:grid;
+  grid-template-columns:1fr 360px;
+  gap:16px;
+  padding:0 24px 24px;
+}
+.metrics-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+  gap:12px;
+}
+.metric-card{
+  background:var(--bg2);
+  border:1px solid var(--border);
+  border-radius:18px;
+  padding:16px;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+.metric-label{
+  font-size:9px;
+  letter-spacing:1.5px;
+  text-transform:uppercase;
+  color:var(--text3);
+}
+.metric-value{
+  font-size:26px;
+  font-weight:700;
+  color:var(--text);
+  min-height:32px;
+}
+.metric-meta{
+  font-size:10px;
+  color:var(--text2);
+}
+.chat-card{
+  background:var(--bg2);
+  border:1px solid var(--border);
+  border-radius:20px;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  padding:18px;
+}
+.chat-card-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+}
+.chat-card h3{
+  margin:0;
+  font-family:'Unbounded',sans-serif;
+  font-size:14px;
+  color:var(--text);
+}
+.chat-card .metric-label{margin-bottom:4px;}
+.chat-messages{
+  background:var(--bg3);
+  border:1px solid var(--border2);
+  border-radius:16px;
+  min-height:160px;
+  max-height:220px;
+  overflow-y:auto;
+  padding:12px;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.chat-message{
+  font-size:11px;
+  background:rgba(0,212,255,0.08);
+  border-radius:12px;
+  padding:8px 12px;
+  border:1px solid transparent;
+}
+.chat-message.self{align-self:flex-end;background:rgba(0,255,136,0.15);border-color:rgba(0,255,136,0.2);}
+.chat-message strong{display:block;font-size:9px;color:var(--text3);margin-bottom:2px;}
+.notification-list{
+  min-height:110px;
+  background:var(--bg3);
+  border-radius:14px;
+  border:1px solid var(--border2);
+  padding:12px;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+.notification-item{
+  padding:8px 12px;
+  background:rgba(255,255,255,0.03);
+  border-radius:12px;
+  font-size:10px;
+  color:var(--text2);
+  border:1px solid transparent;
+}
+.notification-item:first-child{border-color:var(--accent);background:rgba(61,220,151,0.08);}
+.notification-list .placeholder{margin:0;}
+.chat-card-header .badge{font-size:8px;}
+
+@media (max-width:1200px){
+  .insights-shell{grid-template-columns:1fr;padding:0 20px 20px;}
+}
+
+
 /* ═══════════════════════════════════════════
    BRIGADE MOBILE SCREEN
 ═══════════════════════════════════════════ */

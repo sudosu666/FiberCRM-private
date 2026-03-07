@@ -1,14 +1,16 @@
 from datetime import datetime
-from typing import List
-
-from typing import List
-from uuid import UUID
+import base64
+import binascii
+from pathlib import Path
+from typing import List, Optional
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_session
-from ..models import Task, TaskStatus
+from ..models import Brigade, Task, TaskReport, TaskStatus, User, UserRole
 from ..schemas import (
     BrigadeBoardItem,
     TaskAssignRequest,
@@ -20,6 +22,9 @@ from ..schemas import (
     TenderOverview,
     BuildingNetworkRead,
     NetworkOverview,
+    TaskReportCreate,
+    TaskReportRead,
+    FieldMetrics,
 )
 from ..services.logic import (
     load_brigade_board,
@@ -31,11 +36,53 @@ from ..services.logic import (
     load_tenders,
     load_network_overview,
     load_building_network,
+    load_field_metrics,
     refresh_tender_and_building_state,
 )
 from ..services.realtime import manager as realtime_manager
 
 router = APIRouter(prefix='/api')
+
+UPLOAD_DIR = Path(__file__).resolve().parents[1] / "frontend" / "static" / "uploads"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _decode_photo_payload(raw_data: str) -> bytes:
+    header, _, payload = raw_data.partition(',')
+    if not payload:
+        payload = header
+    try:
+        return base64.b64decode(payload)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail='photo_data should be base64') from exc
+
+
+def _build_photo_path(filename: str, payload: bytes) -> str:
+    ext = Path(filename).suffix or '.png'
+    target = UPLOAD_DIR / f'{uuid4().hex}{ext}'
+    target.write_bytes(payload)
+    return f'/static/uploads/{target.name}'
+
+
+async def _resolve_builder_user(session: AsyncSession, brigade_id: Optional[UUID]) -> Optional[User]:
+    builder = None
+    if brigade_id:
+        brigade = await session.get(Brigade, brigade_id)
+        if brigade and brigade.foreman_id:
+            builder = await session.get(User, brigade.foreman_id)
+        if brigade and not builder:
+            builder = (await session.scalars(
+                select(User).where(User.role == UserRole.Builder).limit(1)
+            )).first()
+    if not builder:
+        builder = (await session.scalars(
+            select(User).where(User.role == UserRole.Builder).limit(1)
+        )).first()
+    if not builder:
+        builder = (await session.scalars(
+            select(User).where(User.role == UserRole.Dispatcher).limit(1)
+        )).first()
+    return builder
 
 @router.get('/tasks', response_model=List[TaskQueueItem])
 async def get_tasks(session: AsyncSession = Depends(get_session)) -> List[TaskQueueItem]:
@@ -43,7 +90,7 @@ async def get_tasks(session: AsyncSession = Depends(get_session)) -> List[TaskQu
 
 @router.post('/tasks/{task_id}/assign', response_model=TaskQueueItem)
 async def assign_task(
-    task_id: str,
+    task_id: UUID,
     body: TaskAssignRequest,
     session: AsyncSession = Depends(get_session),
 ) -> TaskQueueItem:
@@ -102,3 +149,57 @@ async def get_stock(session: AsyncSession = Depends(get_session)) -> List[StockI
 @router.get('/warehouse/requests', response_model=List[WarehouseRequestRead])
 async def get_requests(session: AsyncSession = Depends(get_session)) -> List[WarehouseRequestRead]:
     return await load_warehouse_requests(session)
+
+
+@router.get('/field/metrics', response_model=FieldMetrics)
+async def get_field_metrics(session: AsyncSession = Depends(get_session)) -> FieldMetrics:
+    return await load_field_metrics(session)
+
+
+@router.post('/tasks/{task_id}/reports', response_model=TaskReportRead, status_code=status.HTTP_201_CREATED)
+async def create_task_report(
+    task_id: UUID,
+    body: TaskReportCreate,
+    session: AsyncSession = Depends(get_session),
+) -> TaskReportRead:
+    task = await session.get(Task, task_id)
+    if not task:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Task not found')
+    builder = await _resolve_builder_user(session, body.brigade_id)
+    if not builder:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail='No builder user available')
+    photo_data = _decode_photo_payload(body.photo_data)
+    photo_url = _build_photo_path(body.photo_filename, photo_data)
+    brigade_name = body.brigade_name or builder.name
+    report = TaskReport(
+        task_id=task.id,
+        user_id=builder.id,
+        photo_url=photo_url,
+        comment=body.comment,
+        brigade_id=body.brigade_id,
+        brigade_name=brigade_name,
+    )
+    session.add(report)
+    await session.commit()
+    await session.refresh(report)
+    payload = {
+        'task_id': str(task.id),
+        'brigade_id': str(body.brigade_id) if body.brigade_id else None,
+        'brigade_name': report.brigade_name,
+        'photo_url': report.photo_url,
+        'comment': report.comment,
+        'created_at': report.created_at.isoformat(),
+    }
+    await realtime_manager.broadcast_event('photo.report', payload, room='dispatchers')
+    if body.brigade_id:
+        await realtime_manager.broadcast_event('photo.report', payload, room=f'brigade_{body.brigade_id}')
+    return TaskReportRead(
+        id=report.id,
+        task_id=report.task_id,
+        user_id=report.user_id,
+        brigade_id=report.brigade_id,
+        brigade_name=report.brigade_name,
+        photo_url=report.photo_url,
+        comment=report.comment,
+        created_at=report.created_at,
+    )

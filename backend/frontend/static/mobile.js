@@ -10,6 +10,7 @@ const state = {
   photos: [],
   chatMessages: [],
   brigadeId: 'BRG-03',
+  brigadeName: 'Бригада BRG-03',
 };
 
 const qs = (selector) => document.querySelector(selector);
@@ -100,7 +101,9 @@ function advanceStep() {
   renderSteps();
   socket?.emit('progress.update', {
     brigade_id: state.brigadeId,
+    brigade_name: state.brigadeName,
     step: state.steps[nextStep].title,
+    task_id: state.currentTaskId,
     timestamp: new Date().toISOString(),
   });
 }
@@ -126,17 +129,42 @@ function renderPhotos() {
 function handlePhotoUpload(event) {
   const files = Array.from(event.target.files);
   files.forEach((file) => {
-    const url = URL.createObjectURL(file);
-    const label = new Date().toLocaleTimeString();
-    state.photos.unshift({ name: file.name, url, label });
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result;
+      if (typeof dataUrl !== 'string') return;
+      const label = new Date().toLocaleTimeString();
+      state.photos.unshift({ name: file.name, url: dataUrl, label });
+      renderPhotos();
+      persistPhotoReport(file.name, dataUrl, label);
+    };
+    reader.readAsDataURL(file);
   });
-  renderPhotos();
   event.target.value = '';
+}
+
+async function persistPhotoReport(filename, dataUrl, comment) {
+  if (!state.currentTaskId) return;
+  try {
+    await fetch(`/api/tasks/${state.currentTaskId}/reports`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        photo_filename: filename,
+        photo_data: dataUrl,
+        comment,
+        brigade_id: state.brigadeId,
+        brigade_name: state.brigadeName,
+      }),
+    });
+  } catch (error) {
+    console.warn('failed to persist photo report', error);
+  }
 }
 
 function connectChat() {
   socket = io({
-    auth: { role: 'Builder', brigade_id: state.brigadeId },
+    auth: { role: 'Builder', brigade_id: state.brigadeId, brigade_name: state.brigadeName },
     transports: ['websocket'],
   });
 
@@ -181,7 +209,9 @@ function setupChatForm() {
     if (!message) return;
     const payload = {
       brigade_id: state.brigadeId,
-      user: 'Бригада BRG-03',
+      brigade_name: state.brigadeName,
+      user: state.brigadeName,
+      task_id: state.currentTaskId,
       message,
       timestamp: new Date().toISOString(),
     };

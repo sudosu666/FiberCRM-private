@@ -59,6 +59,12 @@ const steps=[
   {title:'Зробити фото-звіт',hint:'Загальний вигляд, кабель, щитки'},
 ];
 
+let fieldMetricsCache=null;
+let fieldChatMessages;
+let fieldNotifications;
+let fieldChatBadge;
+let chatHighlightTimeout;
+
 function initDispatcherView(){
   renderTaskQueue();
   renderBrigadeBoard();
@@ -66,8 +72,13 @@ function initDispatcherView(){
   renderSteps();
   wireModal();
   refreshRemoteState();
+  fieldChatMessages = qs('#fieldChatMessages');
+  fieldNotifications = qs('#fieldNotifications');
+  fieldChatBadge = qs('#chatBadge');
   initRealtimeSocket();
   setInterval(refreshRemoteState,30000);
+  refreshFieldMetrics();
+  setInterval(refreshFieldMetrics,60000);
 }
 
 function initBrigadeView(){
@@ -304,6 +315,97 @@ function updateTimelineFromPayload(items){
   renderTimeline();
 }
 
+async function refreshFieldMetrics(){
+  try{
+    const metrics = await fetchJson(`${API_BASE}/field/metrics`);
+    renderFieldMetrics(metrics);
+  }catch(err){
+    console.warn('field metrics fetch failed',err);
+  }
+}
+
+function renderFieldMetrics(metrics){
+  if(!metrics) return;
+  fieldMetricsCache = metrics;
+  const setText=(id,value)=>{const el=document.getElementById(id);if(el)el.textContent=value;};
+  setText('metricActiveTasks',String(metrics.in_progress_tasks||0));
+  setText('metricTaskMeta',`призначено ${metrics.assigned_tasks||0} · виконано ${metrics.completed_tasks||0}`);
+  setText('metricStepsValue',String(metrics.steps_done||0));
+  setText('metricStepsMeta',`${metrics.steps_done||0} / ${metrics.steps_total||0}`);
+  setText('metricPhotoValue',String(metrics.photo_reports||0));
+  const photoMeta=document.getElementById('metricPhotoMeta');
+  if(photoMeta){
+    photoMeta.textContent = metrics.recent_photo_url
+      ? `остання → ${metrics.recent_photo_url.split('/').pop()}`
+      : 'остання → –';
+  }
+  setText('metricChatValue',metrics.recent_chat||'Поки що тиша');
+}
+
+function appendFieldChatMessage(payload){
+  if(!fieldChatMessages) return;
+  const wrapper=document.createElement('div');
+  wrapper.className='chat-message';
+  const timestamp = payload.timestamp ? new Date(payload.timestamp) : new Date();
+  const user = payload.user || payload.brigade_name || 'Бригада';
+  wrapper.innerHTML=`
+    <strong>${user}</strong>
+    <span>${payload.message || 'повідомлення'}</span>
+    <small class="secondary">${timestamp.toLocaleTimeString()}</small>
+  `;
+  fieldChatMessages.querySelector('.placeholder')?.remove();
+  fieldChatMessages.appendChild(wrapper);
+  fieldChatMessages.scrollTop=fieldChatMessages.scrollHeight;
+}
+
+function addFieldNotification(text){
+  if(!fieldNotifications) return;
+  const note=document.createElement('div');
+  note.className='notification-item';
+  note.textContent=`${new Date().toLocaleTimeString()} · ${text}`;
+  fieldNotifications.querySelector('.placeholder')?.remove();
+  fieldNotifications.prepend(note);
+  if(fieldNotifications.childElementCount>6){
+    fieldNotifications.removeChild(fieldNotifications.lastElementChild);
+  }
+}
+
+function highlightChatBadge(){
+  if(!fieldChatBadge) return;
+  fieldChatBadge.textContent='new';
+  fieldChatBadge.style.background='var(--accent)';
+  clearTimeout(chatHighlightTimeout);
+  chatHighlightTimeout=setTimeout(()=>{
+    fieldChatBadge.textContent='live';
+    fieldChatBadge.style.background='';
+  },2800);
+}
+
+function handleFieldChatEvent(payload){
+  appendFieldChatMessage(payload);
+  addFieldNotification(`${payload.user||payload.brigade_name||'Бригада'} · чат`);
+  highlightChatBadge();
+}
+
+function handleFieldProgressUpdate(payload){
+  const label = payload.brigade_name || payload.brigade_id || 'Бригада';
+  addFieldNotification(`${label}: ${payload.step||'прогрес'}`);
+  if(fieldMetricsCache){
+    fieldMetricsCache.steps_done = Math.min((fieldMetricsCache.steps_total||0), (fieldMetricsCache.steps_done||0)+1);
+    renderFieldMetrics(fieldMetricsCache);
+  }
+}
+
+function handlePhotoReportEvent(payload){
+  const label = payload.brigade_name || payload.brigade_id || 'Бригада';
+  addFieldNotification(`${label} надіслав фото`);
+  if(fieldMetricsCache){
+    fieldMetricsCache.photo_reports = (fieldMetricsCache.photo_reports||0)+1;
+    fieldMetricsCache.recent_photo_url = payload.photo_url || fieldMetricsCache.recent_photo_url;
+    renderFieldMetrics(fieldMetricsCache);
+  }
+}
+
 async function fetchJson(url){
   const res = await fetch(url);
   if(!res.ok) throw new Error(`fetch ${url} failed`);
@@ -331,6 +433,9 @@ function initRealtimeSocket(){
     realtimeSocket.on('connect',()=>console.info('realtime connected',realtimeSocket.id));
     realtimeSocket.on('task_queue.update',payload=>applyTaskPayload(payload));
     realtimeSocket.on('brigade_board.update',payload=>applyBrigadePayload(payload));
+    realtimeSocket.on('progress.update',handleFieldProgressUpdate);
+    realtimeSocket.on('chat.message',handleFieldChatEvent);
+    realtimeSocket.on('photo.report',handlePhotoReportEvent);
     realtimeSocket.on('disconnect',()=>{realtimeSocket=null;setTimeout(initRealtimeSocket,3000);});
     realtimeSocket.on('connect_error',err=>console.warn('realtime error',err));
   }catch(error){
