@@ -72,3 +72,87 @@ class TenderRead(BaseModel):
     created_at: datetime
     class Config:
         orm_mode = True
+
+class BuildingMetrics(BaseModel):
+    planned_cable_meters: float
+    panels_count: int
+    total_flats: int
+    distance_from_muffle: float
+    cable_reserve_pct: int
+
+class TaskQueueItem(BaseModel):
+    id: str
+    type: TaskType
+    status: TaskStatus
+    priority: int
+    description: Optional[str]
+    building_id: Optional[str]
+    building_address: Optional[str]
+    brigade_name: Optional[str]
+    estimated_hours: Optional[float]
+    metrics: BuildingMetrics
+
+class TaskAssignRequest(BaseModel):
+    brigade_id: str
+
+class BrigadeTaskSummary(BaseModel):
+    id: str
+    type: TaskType
+    status: TaskStatus
+    priority: int
+    building_address: Optional[str]
+    progress_pct: int
+
+class BrigadeBoardItem(BaseModel):
+    id: str
+    name: str
+    type: TaskType
+    members: int
+    is_active: bool
+    tasks: List[BrigadeTaskSummary]
+    status_label: str
+
+class TimelineBlock(BaseModel):
+    label: str
+    duration_hours: float
+
+class TimelineHour(BaseModel):
+    hour: int
+    blocks: List[TimelineBlock]
+
+class StockItemRead(BaseModel):
+    id: str
+    name: str
+    unit: str
+    quantity: float
+    min_quantity: float
+
+class WarehouseRequestItemRead(BaseModel):
+    stock_item_name: str
+    planned_qty: float
+    fulfilled_qty: Optional[float]
+
+class WarehouseRequestRead(BaseModel):
+    id: str
+    building_address: Optional[str]
+    status: str
+    notes: Optional[str]
+    created_at: datetime
+    items: List[WarehouseRequestItemRead]
+
+class NetworkFiberRead(BaseModel):
+    id: str
+    fiber_number: int
+    status: str
+
+class NetworkMuffleRead(BaseModel):
+    id: str
+    name: Optional[str]
+    address_note: Optional[str]
+    capacity: int
+    fibers: List[NetworkFiberRead]
+
+class BuildingNetworkRead(BaseModel):
+    id: str
+    address: str
+    metrics: BuildingMetrics
