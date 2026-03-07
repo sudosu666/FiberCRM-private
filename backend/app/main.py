@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from .database import engine, Base, AsyncSessionLocal
@@ -7,6 +8,12 @@ from .seed import seed_demo_data
 from .models import UserRole
 
 app = FastAPI(title='FiberOps CRM Backend')
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=['*'],
+    allow_methods=['*'],
+    allow_headers=['*'],
+)
 
 @app.on_event('startup')
 async def on_startup():
