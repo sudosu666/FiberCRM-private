@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Optional
 
 import socketio
@@ -44,3 +45,34 @@ async def connect(sid: str, environ: dict, auth: Optional[dict]) -> None:
 @sio.event
 async def disconnect(sid: str) -> None:
     print(f'Disconnected: {sid}')
+
+
+@sio.event
+async def chat_message(sid: str, data: dict[str, str]) -> None:
+    if not isinstance(data, dict):
+        return
+    brigade_id = data.get('brigade_id')
+    payload = {
+        'brigade_id': brigade_id,
+        'user': data.get('user', 'Бригада'),
+        'message': data.get('message', ''),
+        'timestamp': data.get('timestamp') or datetime.utcnow().isoformat(),
+    }
+    await manager.broadcast_event('chat.message', payload, room='dispatchers')
+    if brigade_id:
+        await manager.broadcast_event('chat.message', payload, room=f'brigade_{brigade_id}')
+
+
+@sio.event
+async def progress_update(sid: str, data: dict[str, str]) -> None:
+    if not isinstance(data, dict):
+        return
+    brigade_id = data.get('brigade_id')
+    payload = {
+        'brigade_id': brigade_id,
+        'step': data.get('step', 'н/д'),
+        'timestamp': data.get('timestamp') or datetime.utcnow().isoformat(),
+    }
+    await manager.broadcast_event('progress.update', payload, room='dispatchers')
+    if brigade_id:
+        await manager.broadcast_event('progress.update', payload, room=f'brigade_{brigade_id}')

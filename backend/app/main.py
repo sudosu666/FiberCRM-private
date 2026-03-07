@@ -1,7 +1,9 @@
 import socketio
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from .config import settings
 from .database import AsyncSessionLocal, init_db
@@ -21,6 +23,9 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(logic_router)
 app.include_router(ui_router)
+
+static_dir = Path(__file__).resolve().parents[1] / "frontend" / "static"
+app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 @app.on_event("startup")
 async def on_startup() -> None:
