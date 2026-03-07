@@ -1,8 +1,6 @@
-from __future__ import annotations
-
 from datetime import date, datetime
 from enum import Enum
-from typing import List, Optional
+from typing import Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
@@ -89,13 +87,13 @@ class User(SQLModel, table=True):
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
-    led_brigades: List["Brigade"] = Relationship(back_populates="foreman")
-    memberships: List["BrigadeMember"] = Relationship(back_populates="user")
-    task_steps_done: List["TaskStep"] = Relationship(back_populates="actor")
-    task_reports: List["TaskReport"] = Relationship(back_populates="user")
-    notifications: List["Notification"] = Relationship(back_populates="user")
-    push_subscriptions: List["PushSubscription"] = Relationship(back_populates="user")
-    stock_transactions: List["StockTransaction"] = Relationship(back_populates="user")
+    led_brigades: list["Brigade"] = Relationship(back_populates="foreman")
+    memberships: list["BrigadeMember"] = Relationship(back_populates="user")
+    task_steps_done: list["TaskStep"] = Relationship(back_populates="actor")
+    task_reports: list["TaskReport"] = Relationship(back_populates="user")
+    notifications: list["Notification"] = Relationship(back_populates="user")
+    push_subscriptions: list["PushSubscription"] = Relationship(back_populates="user")
+    stock_transactions: list["StockTransaction"] = Relationship(back_populates="user")
 
 
 class Brigade(SQLModel, table=True):
@@ -108,8 +106,8 @@ class Brigade(SQLModel, table=True):
     is_active: bool = Field(default=True)
 
     foreman: Optional[User] = Relationship(back_populates="led_brigades")
-    tasks: List["Task"] = Relationship(back_populates="brigade")
-    members: List["BrigadeMember"] = Relationship(back_populates="brigade")
+    tasks: list["Task"] = Relationship(back_populates="brigade")
+    members: list["BrigadeMember"] = Relationship(back_populates="brigade")
 
 
 class BrigadeMember(SQLModel, table=True):
@@ -134,7 +132,7 @@ class Tender(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     closed_at: Optional[datetime] = None
 
-    buildings: List["Building"] = Relationship(back_populates="tender")
+    buildings: list["Building"] = Relationship(back_populates="tender")
 
 
 class Building(SQLModel, table=True):
@@ -159,8 +157,8 @@ class Building(SQLModel, table=True):
     completed_at: Optional[datetime] = None
 
     tender: Tender = Relationship(back_populates="buildings")
-    tasks: List["Task"] = Relationship(back_populates="building")
-    panels: List["Panel"] = Relationship(back_populates="building")
+    tasks: list["Task"] = Relationship(back_populates="building")
+    panels: list["Panel"] = Relationship(back_populates="building")
 
 
 class Muffle(SQLModel, table=True):
@@ -173,7 +171,7 @@ class Muffle(SQLModel, table=True):
     coordinate_lon: Optional[float] = None
     capacity: int = Field(default=16)
 
-    fibers: List["Fiber"] = Relationship(back_populates="muffle")
+    fibers: list["Fiber"] = Relationship(back_populates="muffle")
 
 
 class Fiber(SQLModel, table=True):
@@ -186,7 +184,7 @@ class Fiber(SQLModel, table=True):
     status: FiberStatus = Field(sa_column=Column(PgEnum(FiberStatus, name="fiber_status")), default=FiberStatus.free)
 
     muffle: Muffle = Relationship(back_populates="fibers")
-    panels: List["Panel"] = Relationship(back_populates="fiber")
+    panels: list["Panel"] = Relationship(back_populates="fiber")
 
 
 class Panel(SQLModel, table=True):
@@ -203,7 +201,7 @@ class Panel(SQLModel, table=True):
 
     building: Building = Relationship(back_populates="panels")
     fiber: Optional[Fiber] = Relationship(back_populates="panels")
-    ports: List["Port"] = Relationship(back_populates="panel")
+    ports: list["Port"] = Relationship(back_populates="panel")
 
 
 class Port(SQLModel, table=True):
@@ -235,8 +233,8 @@ class Task(SQLModel, table=True):
 
     building: Optional[Building] = Relationship(back_populates="tasks")
     brigade: Optional[Brigade] = Relationship(back_populates="tasks")
-    steps: List["TaskStep"] = Relationship(back_populates="task", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
-    reports: List["TaskReport"] = Relationship(back_populates="task", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
+    steps: list["TaskStep"] = Relationship(back_populates="task", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
+    reports: list["TaskReport"] = Relationship(back_populates="task", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
 
 
 class TaskStep(SQLModel, table=True):
@@ -282,7 +280,7 @@ class StockItem(SQLModel, table=True):
     min_quantity: float = Field(default=0.0)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
-    transactions: List["StockTransaction"] = Relationship(back_populates="stock_item")
+    transactions: list["StockTransaction"] = Relationship(back_populates="stock_item")
 
 
 class StockTransaction(SQLModel, table=True):
@@ -313,7 +311,7 @@ class WarehouseRequest(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     fulfilled_at: Optional[datetime] = None
 
-    items: List["WarehouseRequestItem"] = Relationship(back_populates="request", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
+    items: list["WarehouseRequestItem"] = Relationship(back_populates="request", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
     building: Optional[Building] = Relationship()
 
 

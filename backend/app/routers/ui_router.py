@@ -6,7 +6,12 @@ from fastapi.templating import Jinja2Templates
 
 router = APIRouter()
 base_dir = Path(__file__).resolve().parents[1]
-templates = Jinja2Templates(directory=str(base_dir / "frontend" / "templates"))
+templates_dir = base_dir / "frontend" / "templates"
+if not templates_dir.exists():
+    templates_dir = Path(__file__).resolve().parents[1] / "frontend" / "templates"
+    if not templates_dir.exists():
+        templates_dir = Path(__file__).resolve().parents[2] / "frontend" / "templates"
+templates = Jinja2Templates(directory=str(templates_dir))
 
 @router.get("/dispatcher", response_class=HTMLResponse)
 async def get_dispatcher_board(request: Request) -> HTMLResponse:

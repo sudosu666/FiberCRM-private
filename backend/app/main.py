@@ -29,7 +29,10 @@ app.include_router(auth_router)
 app.include_router(logic_router)
 app.include_router(ui_router)
 
-static_dir = Path(__file__).resolve().parents[1] / "frontend" / "static"
+base_dir = Path(__file__).resolve().parents[1]
+static_dir = base_dir / "frontend" / "static"
+if not static_dir.exists():
+    static_dir = Path(__file__).resolve().parent / "frontend" / "static"
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 @app.on_event("startup")

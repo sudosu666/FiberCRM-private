@@ -115,7 +115,7 @@ async def connect(sid: str, environ: dict, auth: Optional[dict]) -> None:
 
         role = token_data.role.value if token_data.role else user.role.value
         if role == UserRole.Dispatcher.value:
-            await sio.enter_room(sid, "dispatchers")
+            sio.enter_room(sid, "dispatchers")
         else:
             if not brigade_id:
                 raise ConnectionRefusedError("Brigade room requires brigade_id")
@@ -132,7 +132,7 @@ async def connect(sid: str, environ: dict, auth: Optional[dict]) -> None:
             member = (await session.execute(membership_stmt)).scalars().first()
             if brigade.foreman_id != user.id and not member:
                 raise ConnectionRefusedError("Forbidden brigade access")
-            await sio.enter_room(sid, f"brigade_{brigade.id}")
+            sio.enter_room(sid, f"brigade_{brigade.id}")
             brigade_id = str(brigade.id)
 
     sid_context[sid] = {

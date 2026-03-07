@@ -160,6 +160,7 @@ async def seed_demo_data(session: AsyncSession) -> None:
     await session.flush()
 
     request = WarehouseRequest(
+        requested_by=dispatcher.id,
         task_id=tasks[1].id,
         building_id=building.id,
         status=RequestStatus.pending,
