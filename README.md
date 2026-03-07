@@ -22,8 +22,8 @@
 - `http://localhost:8000/health/ready`
 
 ## Production run
-1. Copy `.env.prod.example` to `.env` and set real secrets.
-2. Start production profile: `docker compose -f docker-compose.prod.yml up -d --build`.
+1. Fill real secrets in `.env.prod`.
+2. Start production profile: `docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build`.
 3. Review [docs/Production-Deploy.md](/home/linux/Documents/FiberCRM/docs/Production-Deploy.md) and [docs/Admin-Runbook.md](/home/linux/Documents/FiberCRM/docs/Admin-Runbook.md).
 
 ## Security and monitoring additions (Stage 9)
