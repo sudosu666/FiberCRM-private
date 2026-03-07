@@ -1,17 +1,25 @@
 'use strict';
 
-const TASKS=[
+const API_BASE = location.protocol.startsWith('http') ? `${location.origin}/api` : 'https://localhost:8443/api';
+const SOCKET_IO_PATH = '/socket.io';
+const TYPE_ICONS = {construction:'🏗',welding:'⚡',connection:'🔌'};
+const TYPE_NAMES = {construction:'Прокладка кабелю',welding:'Зварювання муфт',connection:'Підключення клієнта'};
+const BRIGADE_ICONS = {construction:'🏗',welding:'⚡',connection:'🔌'};
+const BRIGADE_COLORS = {construction:'var(--accent)',welding:'var(--orange)',connection:'var(--yellow)'};
+
+const FALLBACK_TASKS=[
   {id:1,type:'🏗',typeName:'Прокладка кабелю',addr:'вул. Сонячна 3',desc:'Від муфти M-02, 9 пов., 4 під., ~80м кабелю ОКЛ-16',priority:'high',status:'new',brigade:null,est:'4 год'},
-  {id:2,type:'⚡',typeName:'Зварювання муфт',addr:'вул. Сонячна 1-2',desc:'8 муфт, під\'їзди 7-14. Зварник не призначений — блокер!',priority:'high',status:'new',brigade:null,est:'6 год'},
+  {id:2,type:'⚡',typeName:'Зварювання муфт',addr:'вул. Сонячна 1-2',desc:'8 муфт, під'їзди 7-14. Зварник не призначений — блокер!',priority:'high',status:'new',brigade:null,est:'6 год'},
   {id:3,type:'🔌',typeName:'Підключення клієнта',addr:'Польова 1, кв. 12',desc:'Клієнт Іваненко О. Порт вільний на щитку 3-А',priority:'med',status:'new',brigade:null,est:'1 год'},
-  {id:4,type:'▣',typeName:'Монтаж щитків',addr:'вул. Квіткова 12',desc:'Під\'їзди 3-4, 6 щитків, 5-й поверх',priority:'med',status:'new',brigade:null,est:'3 год'},
+  {id:4,type:'▣',typeName:'Монтаж щитків',addr:'вул. Квіткова 12',desc:'Під'їзди 3-4, 6 щитків, 5-й поверх',priority:'med',status:'new',brigade:null,est:'3 год'},
   {id:5,type:'🏗',typeName:'Прокладка кабелю',addr:'мкр Північний, буд. 7',desc:'Нова траса від магістралі, 120м ОКЛ-24',priority:'low',status:'new',brigade:null,est:'5 год'},
   {id:6,type:'🔌',typeName:'Підключення клієнта',addr:'Квіткова 12, кв. 47',desc:'Нова заявка. Порт вільний — готово до виїзду',priority:'med',status:'new',brigade:null,est:'1 год'},
-  {id:7,type:'⚡',typeName:'Зварювання муфт',addr:'мкр Північний, буд. 3',desc:'4 муфти, розшивка щитків по 2 під\'їздах',priority:'low',status:'new',brigade:null,est:'4 год'},
-  {id:8,type:'▣',typeName:'Монтаж щитків',addr:'вул. Польова 7',desc:'Під\'їзд 2, 3 щитки — залишилось після вчора',priority:'med',status:'new',brigade:null,est:'2 год'},
+  {id:7,type:'⚡',typeName:'Зварювання муфт',addr:'мкр Північний, буд. 3',desc:'4 муфти, розшивка щитків по 2 під'їздах',priority:'low',status:'new',brigade:null,est:'4 год'},
+  {id:8,type:'▣',typeName:'Монтаж щитків',addr:'вул. Польова 7',desc:'Під'їзд 2, 3 щитки — залишилось після вчора',priority:'med',status:'new',brigade:null,est:'2 год'},
 ];
+let TASKS=FALLBACK_TASKS.slice();
 
-const BRIGADES=[
+const FALLBACK_BRIGADES=[
   {id:'b1',icon:'🏗',name:'Б-1 Будівники',members:4,status:'active',color:'var(--accent)',
    tasks:[{addr:'Польова 7',type:'Прокладка',prog:100,status:'done'},{addr:'Польова 9',type:'Монтаж щитків',prog:100,status:'done'},{addr:'Сонячна 3',type:'Прокладка',prog:35,status:'progress'}]},
   {id:'b2',icon:'🏗',name:'Б-2 Будівники',members:3,status:'active',color:'var(--green)',
@@ -23,6 +31,8 @@ const BRIGADES=[
   {id:'p1',icon:'🔌',name:'П-1 Підключення',members:1,status:'active',color:'var(--yellow)',
    tasks:[{addr:'Польова 1, кв.12',type:'Підключення',prog:0,status:'todo'}]},
 ];
+let BRIGADES=FALLBACK_BRIGADES.slice();
+let TIMELINE=[];
 
 const STOCK_ITEMS=[
   {name:'Кабель ОКЛ-16',unit:'м',have:340,min:500,icon:'🔵'},
@@ -39,7 +49,6 @@ const WAREHOUSE_REQUESTS=[
 ];
 
 let selTask=null,selBrigade=null;
-const taskAssigns={};
 const stepsDone=new Set();
 const steps=[
   {title:'Отримати матеріали на складі',hint:'Кабель ОКЛ-16 · 340м, муфта, патч-корди'},
@@ -56,6 +65,9 @@ function initDispatcherView(){
   renderTimeline();
   renderSteps();
   wireModal();
+  refreshRemoteState();
+  initRealtimeSocket();
+  setInterval(refreshRemoteState,30000);
 }
 
 function initBrigadeView(){
@@ -70,24 +82,32 @@ function wireModal(){
   modal.addEventListener('click',e=>{if(e.target===modal)closeModal();});
 }
 
+function priorityMeta(value){
+  const norm = typeof value === 'number' ? (value >= 1 ? 'high' : value === 0 ? 'med' : 'low') : String(value).toLowerCase();
+  if(norm === 'high') return {label:'ТЕРМІНОВО', className:'pri-high'};
+  if(norm === 'med' || norm === 'medium') return {label:'СЕРЕДНІЙ', className:'pri-med'};
+  return {label:'НИЗЬКИЙ', className:'pri-low'};
+}
+
 function renderTaskQueue(){
   const el=document.getElementById('taskQueue');
   if(!el)return;
   el.innerHTML=TASKS.map(t=>{
-    const assigned=taskAssigns[t.id];
-    const priClass=t.priority==='high'?'pri-high':t.priority==='med'?'pri-med':'pri-low';
-    const priLabel=t.priority==='high'?'ТЕРМІНОВО':t.priority==='med'?'СЕРЕДНІЙ':'НИЗЬКИЙ';
-    return`<div class="task-card ${selTask===t.id?'selected':''}" onclick="selectTask(${t.id})">
+    const priority=priorityMeta(t.priority);
+    const assigned=Boolean(t.brigade);
+    const assignLabel=assigned?t.brigade:'Нова';
+    const typeDesc = t.typeName || t.desc || '';
+    return`<div class="task-card ${selTask===t.id?'selected':''}" onclick="selectTask('${t.id}')">
       <div class="tc-head">
         <span class="tc-type">${t.type}</span>
         <span class="tc-addr">${t.addr}</span>
-        <span class="tc-pri ${priClass}">${priLabel}</span>
+        <span class="tc-pri ${priority.className}">${priority.label}</span>
       </div>
-      <div class="tc-desc">${t.typeName} · ${t.desc.substring(0,60)}${t.desc.length>60?'…':''}</div>
+      <div class="tc-desc">${typeDesc.substring(0,60)}${typeDesc.length>60?'…':''}</div>
       <div class="tc-foot">
         <span class="tc-stat">⏱ ${t.est}</span>
-        <span class="tc-assign ${assigned?'assigned':''}" onclick="event.stopPropagation();quickAssign(${t.id})">
-          ${assigned?'✓ '+assigned:'Призначити →'}
+        <span class="tc-assign ${assigned?'assigned':''}" onclick="event.stopPropagation();quickAssign('${t.id}')">
+          ${assigned?`✓ ${assignLabel}`:'Призначити →'}
         </span>
       </div>
     </div>`;
@@ -100,16 +120,18 @@ function selectTask(id){
   renderTaskDetail(TASKS.find(t=>t.id===id));
 }
 
-function quickAssign(tid){
-  const idle=BRIGADES.find(b=>b.status==='idle'||b.tasks.length<2);
-  if(idle){taskAssigns[tid]=idle.name;renderTaskQueue();if(selTask===tid)renderTaskDetail(TASKS.find(t=>t.id===tid));}
+async function quickAssign(tid){
+  const idle=BRIGADES.find(b=>b.status==='idle'||(b.tasks||[]).length<2);
+  if(idle){await assignTo(tid,idle.id);}
 }
 
 function renderTaskDetail(t){
   const detailEl=document.getElementById('taskDetail');
   if(!detailEl){return;}
   if(!t){detailEl.innerHTML='<div class="td-empty">← Вибери задачу</div>';return;}
-  const assigned=taskAssigns[t.id];
+  const priority=priorityMeta(t.priority);
+  const assigned=Boolean(t.brigade);
+  const statusLabel=assigned?'Призначено':'Нова';
   detailEl.innerHTML=`
     <div class="td-header">
       <div class="td-type-badge">${t.type} ${t.typeName}</div>
@@ -117,15 +139,15 @@ function renderTaskDetail(t){
       <div class="td-desc">${t.desc}</div>
     </div>
     <div class="td-meta">
-      <div class="td-meta-row"><span class="td-ml">Пріоритет</span><span class="td-mv" style="color:${t.priority==='high'?'var(--red)':t.priority==='med'?'var(--orange)':'var(--accent)'}">${t.priority==='high'?'Терміново':t.priority==='med'?'Середній':'Низький'}</span></div>
+      <div class="td-meta-row"><span class="td-ml">Пріоритет</span><span class="td-mv" style="color:${priority.className==='pri-high'?'var(--red)':priority.className==='pri-med'?'var(--orange)':'var(--accent)'}">${priority.label}</span></div>
       <div class="td-meta-row"><span class="td-ml">Орієнтовно</span><span class="td-mv">${t.est}</span></div>
-      <div class="td-meta-row"><span class="td-ml">Статус</span><span class="td-mv">${assigned?'Призначено':'Нова'}</span></div>
+      <div class="td-meta-row"><span class="td-ml">Статус</span><span class="td-mv">${statusLabel}</span></div>
     </div>
     <div class="assign-section">
       <div class="assign-title">Призначити бригаду</div>
       <div class="assign-options">
         ${BRIGADES.map(b=>`
-          <div class="assign-opt ${assigned===b.name?'selected-assign':''}" onclick="assignTo(${t.id},'${b.name}')">
+          <div class="assign-opt ${selBrigade===b.id?'selected-assign':''}" onclick="assignTo('${t.id}','${b.id}')">
             <div class="ao-dot" style="background:${b.color};box-shadow:0 0 5px ${b.color}"></div>
             <span class="ao-name">${b.icon} ${b.name}</span>
             <span class="ao-load">${b.status==='active'?b.tasks.length+' задач':b.status==='idle'?'Вільна':'Офлайн'}</span>
@@ -133,17 +155,27 @@ function renderTaskDetail(t){
       </div>
     </div>
     <div class="td-actions">
-      <button class="btn btn-p" style="width:100%" onclick="assignTo(${t.id},selBrigade||'Б-1 Будівники')">Призначити</button>
+      <button class="btn btn-p" style="width:100%" onclick="assignTo('${t.id}',selBrigade||'${BRIGADES[0]?.id||''}')">Призначити</button>
       <button class="btn btn-g" style="width:100%;background:transparent;color:var(--text2);border:1px solid var(--border2)" onclick="selectTask(null)">Скасувати</button>
     </div>`;
 }
 
-function assignTo(tid,bname){
-  taskAssigns[tid]=bname;
-  selBrigade=bname;
-  renderTaskQueue();
-  renderTaskDetail(TASKS.find(t=>t.id===tid));
-  renderBrigadeBoard();
+async function assignTo(tid, brigadeId){
+  if(!tid||!brigadeId){return;}
+  selBrigade=brigadeId;
+  try{
+    await fetch(`${API_BASE}/tasks/${tid}/assign`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({brigade_id:brigadeId}),
+    });
+    await refreshRemoteState();
+    if(selTask===tid){
+      renderTaskDetail(TASKS.find(t=>t.id===tid));
+    }
+  }catch(err){
+    console.warn('assign failed',err);
+  }
 }
 
 function renderBrigadeBoard(){
@@ -151,19 +183,6 @@ function renderBrigadeBoard(){
   if(!target)return;
   target.innerHTML=BRIGADES.map(b=>{
     const sdot=b.status==='active'?'status-active':b.status==='idle'?'status-idle':'status-off';
-    const tasks=b.tasks.map(t=>`
-      <div class="assigned-task ${t.status}">
-        <div class="at-addr">${t.addr}</div>
-        <div class="at-type">${t.type}</div>
-        <div class="at-progress"><div class="at-progress-fill" style="width:${t.prog}%;background:${t.prog===100?'var(--green)':'var(--accent)'}"></div></div>
-      </div>`).join('');
-    const newTasks=Object.entries(taskAssigns).filter(([,v])=>v===b.name).map(([k])=>TASKS.find(t=>t.id==k)).filter(Boolean);
-    const ntHtml=newTasks.map(t=>`
-      <div class="assigned-task">
-        <div class="at-addr">${t.type} ${t.addr}</div>
-        <div class="at-type" style="color:var(--orange)">Нова · чекає</div>
-        <div class="at-progress"><div class="at-progress-fill" style="width:0%;background:var(--orange)"></div></div>
-      </div>`).join('');
     return`<div class="brigade-col">
       <div class="bcol-head">
         <span class="bcol-icon">${b.icon}</span>
@@ -171,7 +190,12 @@ function renderBrigadeBoard(){
         <div class="bcol-status ${sdot}"></div>
       </div>
       <div class="bcol-body">
-        ${tasks}${ntHtml}
+        ${(b.tasks||[]).map(t=>`
+          <div class="assigned-task ${t.status}">
+            <div class="at-addr">${t.addr||'—'}</div>
+            <div class="at-type">${t.type}</div>
+            <div class="at-progress"><div class="at-progress-fill" style="width:${t.prog||0}%;background:${(t.prog||0)>=100?'var(--green)':'var(--accent)'}"></div></div>
+          </div>`).join('')}
         <div class="drop-zone" onclick="quickAssign2('${b.id}')">+ Додати задачу</div>
       </div>
       <div class="bcol-footer">
@@ -185,26 +209,18 @@ function renderBrigadeBoard(){
 }
 
 function quickAssign2(bid){
-  const unassigned=TASKS.find(t=>!taskAssigns[t.id]);
-  const b=BRIGADES.find(br=>br.id===bid);
-  if(unassigned&&b){assignTo(unassigned.id,b.name);}
+  const unassigned=TASKS.find(t=>!t.brigade);
+  if(unassigned){assignTo(unassigned.id,bid);}
 }
 
 function renderTimeline(){
   const el=document.getElementById('timeline');
   if(!el)return;
-  const hours=[8,9,10,11,12,13,14,15,16,17,18];
-  const blocks={
-    8:[{b:'tl-b1',label:'Б-1 Польова 7',w:2},{b:'tl-b2',label:'Б-2 Квіткова',w:2}],
-    10:[{b:'tl-b1',label:'Б-1 Польова 9',w:1.5}],
-    11:[{b:'tl-b1',label:'Б-1 Сонячна 3',w:3},{b:'tl-b3',label:'З-1 Польова',w:2}],
-    14:[{b:'tl-b2',label:'Б-2 Щитки',w:2},{b:'tl-b3',label:'З-1 Квіткова',w:2}],
-    16:[{b:'tl-b1',label:'Б-1 →наст.',w:1}],
-  };
-  el.innerHTML=hours.map(h=>`
+  const hours=TIMELINE.length ? TIMELINE : Array.from({length:11},(_,i)=>({hour:8+i, blocks:[]}));
+  el.innerHTML=hours.map(hour=>`
     <div class="tl-hour">
-      <div class="tl-hour-label">${h}:00</div>
-      ${(blocks[h]||[]).map(b=>`<div class="tl-block ${b.b}" style="width:${b.w*54}px">${b.label}</div>`).join('')}
+      <div class="tl-hour-label">${String(hour.hour).padStart(2,'0')}:00</div>
+      ${(hour.blocks||[]).map(block=>`<div class="tl-block" style="width:${Math.max(70,(block.duration_hours||1)*36)}px">${block.label}</div>`).join('')}
     </div>`).join('');
 }
 
@@ -230,6 +246,96 @@ function renderSteps(){
 function doneStep(i){
   stepsDone.add(i);
   renderSteps();
+}
+
+function mapApiTask(api){
+  const typeIcon = TYPE_ICONS[api.type] || '◈';
+  const typeName = TYPE_NAMES[api.type] || api.type;
+  const priority = api.priority>=1?'high':api.priority===0?'med':'low';
+  return {
+    id: api.id,
+    type: typeIcon,
+    typeName,
+    addr: api.building_address || '—',
+    desc: api.description || typeName,
+    priority,
+    status: api.status,
+    brigade: api.brigade_name,
+    est: api.estimated_hours?`${api.estimated_hours} год`:'—',
+  };
+}
+
+function mapApiBrigade(api){
+  const icon = BRIGADE_ICONS[api.type] || '◈';
+  const color = BRIGADE_COLORS[api.type] || 'var(--text)';
+  const status = api.is_active?'active':'idle';
+  return {
+    id: api.id,
+    icon,
+    name: api.name,
+    members: api.members || 0,
+    status,
+    color,
+    tasks: (api.tasks||[]).map(task=>({
+      addr: task.building_address || '—',
+      type: TYPE_NAMES[task.type] || task.type,
+      prog: task.progress_pct || 0,
+      status: task.status,
+    })),
+  };
+}
+
+function applyTaskPayload(items){
+  if(!Array.isArray(items)) return;
+  TASKS = items.map(mapApiTask);
+  renderTaskQueue();
+  if(selTask){renderTaskDetail(TASKS.find(t=>t.id===selTask));}
+}
+
+function applyBrigadePayload(items){
+  if(!Array.isArray(items)) return;
+  BRIGADES = items.map(mapApiBrigade);
+  renderBrigadeBoard();
+}
+
+function updateTimelineFromPayload(items){
+  if(!Array.isArray(items)) return;
+  TIMELINE = items;
+  renderTimeline();
+}
+
+async function fetchJson(url){
+  const res = await fetch(url);
+  if(!res.ok) throw new Error(`fetch ${url} failed`);
+  return await res.json();
+}
+
+async function refreshRemoteState(){
+  try{
+    const [tasks, brigades, timeline] = await Promise.all([
+      fetchJson(`${API_BASE}/tasks`),
+      fetchJson(`${API_BASE}/brigades`),
+      fetchJson(`${API_BASE}/timeline`),
+    ]);
+    applyTaskPayload(tasks);
+    applyBrigadePayload(brigades);
+    updateTimelineFromPayload(timeline);
+  }catch(err){console.warn('refresh remote state failed',err)}
+}
+
+let realtimeSocket;
+function initRealtimeSocket(){
+  if(realtimeSocket||typeof io==='undefined') return;
+  try{
+    realtimeSocket = io({path:SOCKET_IO_PATH, auth:{role:'Dispatcher'}, transports:['websocket','polling']});
+    realtimeSocket.on('connect',()=>console.info('realtime connected',realtimeSocket.id));
+    realtimeSocket.on('task_queue.update',payload=>applyTaskPayload(payload));
+    realtimeSocket.on('brigade_board.update',payload=>applyBrigadePayload(payload));
+    realtimeSocket.on('disconnect',()=>{realtimeSocket=null;setTimeout(initRealtimeSocket,3000);});
+    realtimeSocket.on('connect_error',err=>console.warn('realtime error',err));
+  }catch(error){
+    console.warn('realtime init failed',error);
+  }
 }
 
 function renderWarehouse(){
