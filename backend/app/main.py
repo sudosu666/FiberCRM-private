@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from .database import engine, Base, AsyncSessionLocal
-from .routers import auth_router, logic_router
+from .routers import auth_router, logic_router, realtime_router
 from .seed import seed_demo_data
 from .models import UserRole
 
@@ -24,6 +24,7 @@ async def on_startup():
 
 app.include_router(auth_router)
 app.include_router(logic_router)
+app.include_router(realtime_router)
 
 @app.get('/')
 async def health_check():

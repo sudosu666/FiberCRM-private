@@ -23,6 +23,7 @@ from ..services.logic import (
     load_timeline,
     load_warehouse_requests,
 )
+from ..services.realtime import manager as realtime_manager
 
 router = APIRouter(prefix='/api')
 
@@ -46,6 +47,9 @@ async def assign_task(
     await session.commit()
     await session.refresh(task)
     queue = await load_task_queue(session)
+    await realtime_manager.broadcast_event('task_queue.update', [item.dict() for item in queue])
+    brigade_board = await load_brigade_board(session)
+    await realtime_manager.broadcast_event('brigade_board.update', [item.dict() for item in brigade_board])
     for item in queue:
         if item.id == str(task.id):
             return item

@@ -10,3 +10,4 @@ The `nginx` service listens on port `8443` and uses the bundled cert/key pair so
 
 ### Next steps
 - Stage 4 will plug the split UI into the `/api` surface and add the Canvas/SVG visualizer.
+- Stage 5 will layer real-time WebSocket events on top of `/api` so the dispatcher/brigade views receive live task/brigade status, timeline, and chat updates.
