@@ -1,6 +1,9 @@
 from datetime import datetime
 from typing import List
 
+from typing import List
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +17,9 @@ from ..schemas import (
     StockItemRead,
     WarehouseRequestRead,
     NetworkMuffleRead,
+    TenderOverview,
+    BuildingNetworkRead,
+    NetworkOverview,
 )
 from ..services.logic import (
     load_brigade_board,
@@ -22,6 +28,10 @@ from ..services.logic import (
     load_task_queue,
     load_timeline,
     load_warehouse_requests,
+    load_tenders,
+    load_network_overview,
+    load_building_network,
+    refresh_tender_and_building_state,
 )
 from ..services.realtime import manager as realtime_manager
 
@@ -44,6 +54,8 @@ async def assign_task(
     task.status = TaskStatus.assigned
     task.assigned_at = datetime.utcnow()
     session.add(task)
+    await session.flush()
+    await refresh_tender_and_building_state(session, task)
     await session.commit()
     await session.refresh(task)
     queue = await load_task_queue(session)
@@ -66,6 +78,22 @@ async def get_timeline(session: AsyncSession = Depends(get_session)) -> List[Tim
 @router.get('/network/topology', response_model=List[NetworkMuffleRead])
 async def get_network(session: AsyncSession = Depends(get_session)) -> List[NetworkMuffleRead]:
     return await load_network_topology(session)
+
+@router.get('/network/overview', response_model=NetworkOverview)
+async def get_network_overview(session: AsyncSession = Depends(get_session)) -> NetworkOverview:
+    return await load_network_overview(session)
+
+@router.get('/buildings/{building_id}/network', response_model=BuildingNetworkRead)
+async def get_building_network(building_id: UUID, session: AsyncSession = Depends(get_session)) -> BuildingNetworkRead:
+    record = await load_building_network(session, building_id)
+    if not record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Building not found')
+    return record
+
+
+@router.get('/tenders', response_model=List[TenderOverview])
+async def get_tenders(session: AsyncSession = Depends(get_session)) -> List[TenderOverview]:
+    return await load_tenders(session)
 
 @router.get('/stock', response_model=List[StockItemRead])
 async def get_stock(session: AsyncSession = Depends(get_session)) -> List[StockItemRead]:

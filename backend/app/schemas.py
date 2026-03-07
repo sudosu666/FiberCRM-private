@@ -94,6 +94,23 @@ class TenderRead(BaseModel):
         orm_mode = True
 
 
+class TenderOverview(BaseModel):
+    id: UUID
+    name: str
+    status: TenderStatus
+    customer: str
+    city: Optional[str]
+    building_count: int
+    task_count: int
+    completed_tasks: int
+    in_progress_tasks: int
+    pending_tasks: int
+    planned_cable_meters: float
+
+    class Config:
+        orm_mode = True
+
+
 class BuildingMetrics(BaseModel):
     planned_cable_meters: float
     panels_count: int
@@ -183,6 +200,19 @@ class NetworkMuffleRead(BaseModel):
     address_note: Optional[str]
     capacity: int
     fibers: List[NetworkFiberRead]
+
+
+class NetworkOverview(BaseModel):
+    total_fibers: int
+    reserved_fibers: int
+    busy_fibers: int
+    total_ports: int
+    reserved_ports: int
+    active_ports: int
+    faulty_ports: int
+
+    class Config:
+        orm_mode = True
 
 
 class BuildingNetworkRead(BaseModel):

@@ -1,5 +1,6 @@
 from math import ceil
-from typing import List
+from typing import List, Optional
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,10 +10,16 @@ from ..models import (
     Building,
     Brigade,
     Fiber,
+    FiberStatus,
+    InfraStatus,
     Muffle,
+    Port,
+    PortStatus,
     StockItem,
     Task,
     TaskStatus,
+    Tender,
+    TenderStatus,
     WarehouseRequest,
     WarehouseRequestItem,
 )
@@ -22,10 +29,13 @@ from ..schemas import (
     BrigadeTaskSummary,
     NetworkFiberRead,
     NetworkMuffleRead,
+    NetworkOverview,
+    BuildingNetworkRead,
     StockItemRead,
     TaskQueueItem,
     TimelineBlock,
     TimelineHour,
+    TenderOverview,
     WarehouseRequestItemRead,
     WarehouseRequestRead,
 )
@@ -200,3 +210,112 @@ async def load_network_topology(session: AsyncSession) -> List[NetworkMuffleRead
         capacity=muffle.capacity,
         fibers=_network_fibers_for_muffle(muffle, muffle.fibers),
     ) for muffle in muffles]
+
+
+async def load_tenders(session: AsyncSession) -> List[TenderOverview]:
+    stmt = select(Tender).options(
+        selectinload(Tender.buildings).selectinload(Building.tasks)
+    )
+    result = await session.scalars(stmt)
+    records = []
+    for tender in result.all():
+        buildings = tender.buildings or []
+        tasks = [task for building in buildings for task in (building.tasks or [])]
+        statuses = [task.status for task in tasks if task.status] if tasks else []
+        completed = sum(1 for status in statuses if _is_completed_status(status))
+        in_progress = sum(1 for status in statuses if _is_in_progress_status(status))
+        pending = sum(1 for status in statuses if status == TaskStatus.pending)
+        planned_cable = sum(calculate_building_metrics(building).planned_cable_meters for building in buildings)
+        records.append(TenderOverview(
+            id=tender.id,
+            name=tender.name,
+            status=tender.status,
+            customer=tender.customer,
+            city=tender.city,
+            building_count=len(buildings),
+            task_count=len(tasks),
+            completed_tasks=completed,
+            in_progress_tasks=in_progress,
+            pending_tasks=pending,
+            planned_cable_meters=round(planned_cable, 1),
+        ))
+    return records
+
+
+async def load_network_overview(session: AsyncSession) -> NetworkOverview:
+    fibers = (await session.scalars(select(Fiber))).all()
+    ports = (await session.scalars(select(Port))).all()
+    return NetworkOverview(
+        total_fibers=len(fibers),
+        reserved_fibers=sum(1 for fiber in fibers if fiber.status == FiberStatus.reserved),
+        busy_fibers=sum(1 for fiber in fibers if fiber.status == FiberStatus.busy),
+        total_ports=len(ports),
+        reserved_ports=sum(1 for port in ports if port.status == PortStatus.reserved),
+        active_ports=sum(1 for port in ports if port.status == PortStatus.active),
+        faulty_ports=sum(1 for port in ports if port.status == PortStatus.faulty),
+    )
+
+
+async def load_building_network(session: AsyncSession, building_id: UUID) -> Optional[BuildingNetworkRead]:
+    building = await session.get(Building, building_id)
+    if not building:
+        return None
+    metrics = calculate_building_metrics(building)
+    return BuildingNetworkRead(
+        id=building.id,
+        address=building.address,
+        metrics=metrics,
+    )
+
+
+async def refresh_tender_and_building_state(session: AsyncSession, task: Task) -> None:
+    if not task.building_id:
+        return
+    building = await session.get(Building, task.building_id)
+    if not building:
+        return
+    status_records = (await session.scalars(select(Task.status).where(Task.building_id == building.id))).all()
+    infra_status = _determine_infra_status(status_records)
+    if building.infrastructure_status != infra_status:
+        building.infrastructure_status = infra_status
+        session.add(building)
+    if not building.tender_id:
+        return
+    tender = await session.get(Tender, building.tender_id)
+    if not tender:
+        return
+    tender_status_records = (await session.scalars(
+        select(Task.status).join(Building).where(Building.tender_id == tender.id)
+    )).all()
+    new_status = _determine_tender_status(tender_status_records)
+    if tender.status != new_status:
+        tender.status = new_status
+        session.add(tender)
+
+
+def _determine_infra_status(statuses: List[TaskStatus]) -> InfraStatus:
+    if not statuses:
+        return InfraStatus.planned
+    if all(_is_completed_status(status) for status in statuses):
+        return InfraStatus.completed
+    if any(_is_in_progress_status(status) for status in statuses):
+        return InfraStatus.in_progress
+    return InfraStatus.planned
+
+
+def _determine_tender_status(statuses: List[TaskStatus]) -> TenderStatus:
+    if not statuses:
+        return TenderStatus.new
+    if all(_is_completed_status(status) for status in statuses):
+        return TenderStatus.completed
+    if any(_is_in_progress_status(status) for status in statuses):
+        return TenderStatus.in_progress
+    return TenderStatus.planning
+
+
+def _is_completed_status(status: TaskStatus) -> bool:
+    return status in {TaskStatus.completed, TaskStatus.canceled}
+
+
+def _is_in_progress_status(status: TaskStatus) -> bool:
+    return status in {TaskStatus.assigned, TaskStatus.in_progress}
