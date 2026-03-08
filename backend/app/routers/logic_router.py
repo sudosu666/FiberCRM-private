@@ -53,8 +53,11 @@ from ..schemas import (
     TaskStepCompleteRead,
     TimelineHour,
     StockItemRead,
+    StockAdjustRequest,
+    StockTransactionRead,
     WarehouseRequestRead,
     WarehouseRequestFulfill,
+    WarehouseRequestCreate,
     NetworkMuffleRead,
     TenderOverview,
     TenderCreate,
@@ -83,6 +86,7 @@ from ..services.logic import (
     load_field_workers,
     load_network_topology,
     load_stock_items,
+    load_stock_transactions,
     load_task_queue,
     load_timeline,
     load_warehouse_requests,
@@ -160,7 +164,7 @@ async def _resolve_builder_user(session: AsyncSession, brigade_id: Optional[UUID
 @router.get('/tasks', response_model=List[TaskQueueItem])
 async def get_tasks(
     session: AsyncSession = Depends(get_session),
-    _: User = dispatcher_only,
+    _: User = ops_roles,
 ) -> List[TaskQueueItem]:
     return await load_task_queue(session)
 
@@ -906,12 +910,103 @@ async def get_stock(
 ) -> List[StockItemRead]:
     return await load_stock_items(session)
 
+
+@router.get('/stock/transactions', response_model=List[StockTransactionRead])
+async def get_stock_transactions(
+    session: AsyncSession = Depends(get_session),
+    _: User = warehouse_only,
+) -> List[StockTransactionRead]:
+    return await load_stock_transactions(session)
+
+
+@router.post('/stock/adjust', response_model=StockItemRead)
+async def adjust_stock(
+    body: StockAdjustRequest,
+    session: AsyncSession = Depends(get_session),
+    warehouse_user: User = warehouse_only,
+) -> StockItemRead:
+    item = await session.get(StockItem, body.stock_item_id)
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Stock item not found')
+    next_quantity = item.quantity + body.delta
+    if next_quantity < 0:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Stock quantity cannot become negative')
+    item.quantity = next_quantity
+    item.updated_at = datetime.utcnow()
+    session.add(item)
+    session.add(StockTransaction(
+        stock_item_id=item.id,
+        delta=body.delta,
+        reason=body.reason,
+        user_id=warehouse_user.id,
+    ))
+    session.add(WorkLog(
+        user_id=warehouse_user.id,
+        event_type='stock.adjusted',
+        description=f'{item.name}: {body.delta}',
+        quantity=abs(body.delta),
+        unit=item.unit,
+        event_at=datetime.utcnow(),
+    ))
+    await session.commit()
+    await session.refresh(item)
+    return StockItemRead(
+        id=item.id,
+        name=item.name,
+        unit=item.unit,
+        quantity=item.quantity,
+        min_quantity=item.min_quantity,
+        shortage=item.quantity < item.min_quantity,
+    )
+
 @router.get('/warehouse/requests', response_model=List[WarehouseRequestRead])
 async def get_requests(
     session: AsyncSession = Depends(get_session),
     _: User = warehouse_only,
 ) -> List[WarehouseRequestRead]:
     return await load_warehouse_requests(session)
+
+
+@router.post('/warehouse/requests', response_model=WarehouseRequestRead, status_code=status.HTTP_201_CREATED)
+async def create_request(
+    body: WarehouseRequestCreate,
+    session: AsyncSession = Depends(get_session),
+    warehouse_user: User = warehouse_only,
+) -> WarehouseRequestRead:
+    if not body.items:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Warehouse request requires at least one item')
+    req = WarehouseRequest(
+        requested_by=warehouse_user.id,
+        task_id=body.task_id,
+        building_id=body.building_id,
+        notes=body.notes,
+    )
+    session.add(req)
+    await session.flush()
+    for entry in body.items:
+        stock_item = await session.get(StockItem, entry.stock_item_id)
+        if not stock_item:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f'Stock item not found: {entry.stock_item_id}')
+        session.add(WarehouseRequestItem(
+            request_id=req.id,
+            stock_item_id=entry.stock_item_id,
+            planned_qty=entry.planned_qty,
+        ))
+    session.add(WorkLog(
+        user_id=warehouse_user.id,
+        task_id=body.task_id,
+        event_type='warehouse.request.created',
+        description=body.notes or 'Manual warehouse request',
+        quantity=float(len(body.items)),
+        unit='item',
+        event_at=datetime.utcnow(),
+    ))
+    await session.commit()
+    records = await load_warehouse_requests(session)
+    for record in records:
+        if record.id == req.id:
+            return record
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='Unable to build warehouse request payload')
 
 
 @router.post('/warehouse/requests/{request_id}/fulfill', response_model=WarehouseRequestRead)

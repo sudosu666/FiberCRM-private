@@ -1,8 +1,10 @@
 'use strict';
 
-function getAuthHeaders(extra = {}) {
-  return FiberAuth.getAuthHeaders(extra);
-}
+const warehouseState = {
+  stock: [],
+  requests: [],
+  transactions: [],
+};
 
 function el(id) {
   return document.getElementById(id);
@@ -11,7 +13,7 @@ function el(id) {
 async function readJson(url, options = {}) {
   return FiberAuth.fetchJson(url, {
     ...options,
-    headers: getAuthHeaders(options.headers || {}),
+    headers: FiberAuth.getAuthHeaders(options.headers || {}),
   });
 }
 
@@ -35,36 +37,77 @@ function renderStock(items) {
   }).join('');
 }
 
+function renderTransactions(items) {
+  const mount = el('transactionsList');
+  if (!items.length) {
+    mount.innerHTML = '<p class="placeholder">Історія руху порожня</p>';
+    return;
+  }
+  mount.innerHTML = items.map((item) => `
+    <article class="item">
+      <p class="title">${item.stock_item_name}</p>
+      <p class="sub">Зміна: ${item.delta > 0 ? '+' : ''}${item.delta}</p>
+      <p class="sub">Причина: ${item.reason || '—'}</p>
+      <p class="sub">${new Date(item.created_at).toLocaleString()}</p>
+    </article>
+  `).join('');
+}
+
+function fillSelectOptions(selectId) {
+  const select = el(selectId);
+  if (!select) return;
+  select.innerHTML = warehouseState.stock.map((item) => (
+    `<option value="${item.id}">${item.name} · ${item.quantity} ${item.unit}</option>`
+  )).join('');
+}
+
+function requestItemControls(request) {
+  return request.items.map((entry) => {
+    const remaining = Math.max(0, Number(entry.planned_qty) - Number(entry.fulfilled_qty || 0));
+    return `
+      <div class="form-box">
+        <div class="sub">${entry.stock_item_name}</div>
+        <div class="sub">План: ${entry.planned_qty}</div>
+        <div class="sub">Видано: ${entry.fulfilled_qty || 0}</div>
+        <input type="number" min="0" step="0.1" value="${remaining}" data-fulfill-item="${entry.id}">
+      </div>
+    `;
+  }).join('');
+}
+
 function renderRequests(items) {
   const mount = el('requestList');
   if (!items.length) {
     mount.innerHTML = '<p class="placeholder">Немає відкритих запитів</p>';
     return;
   }
-  mount.innerHTML = items.map((request) => {
-    const parts = request.items.map((entry) => `${entry.stock_item_name}: ${entry.planned_qty}`).join(', ');
-    return `
-      <article class="item">
-        <p class="title">${request.building_address || 'Без адреси'}</p>
-        <p class="sub">Статус: ${request.status}</p>
-        <p class="sub">${parts || 'Без позицій'}</p>
-        <button type="button" data-request-id="${request.id}" ${request.status === 'fulfilled' ? 'disabled' : ''}>Закрити заявку</button>
-      </article>
-    `;
-  }).join('');
+  mount.innerHTML = items.map((request) => `
+    <article class="item">
+      <p class="title">${request.building_address || 'Без адреси'}</p>
+      <p class="sub">Статус: ${request.status}</p>
+      <p class="sub">${request.notes || 'Без примітки'}</p>
+      ${requestItemControls(request)}
+      <button type="button" data-request-id="${request.id}" ${request.status === 'fulfilled' ? 'disabled' : ''}>Видати матеріали</button>
+    </article>
+  `).join('');
 
   mount.querySelectorAll('button[data-request-id]').forEach((button) => {
     button.addEventListener('click', async () => {
       const requestId = button.getAttribute('data-request-id');
-      if (!requestId) {
-        return;
-      }
+      if (!requestId) return;
+      const requestCard = button.closest('.item');
+      const payload = Array.from(requestCard.querySelectorAll('input[data-fulfill-item]'))
+        .map((input) => ({
+          item_id: input.getAttribute('data-fulfill-item'),
+          fulfilled_qty: Number(input.value || 0),
+        }))
+        .filter((entry) => entry.fulfilled_qty > 0);
       button.disabled = true;
       try {
         await readJson(`/api/warehouse/requests/${requestId}/fulfill`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ items: [] }),
+          body: JSON.stringify({ items: payload }),
         });
         await loadWarehouse();
       } catch (error) {
@@ -76,17 +119,56 @@ function renderRequests(items) {
 }
 
 async function loadWarehouse() {
-  const [stock, requests] = await Promise.all([
+  const [stock, requests, transactions] = await Promise.all([
     readJson('/api/stock'),
     readJson('/api/warehouse/requests'),
+    readJson('/api/stock/transactions'),
   ]);
+  warehouseState.stock = stock;
+  warehouseState.requests = requests;
+  warehouseState.transactions = transactions;
   renderStock(stock);
   renderRequests(requests);
+  renderTransactions(transactions);
+  fillSelectOptions('adjustStockItem');
+  fillSelectOptions('requestStockItem');
 }
 
 function bindActions() {
   el('refreshStock').addEventListener('click', () => loadWarehouse().catch(console.error));
   el('refreshRequests').addEventListener('click', () => loadWarehouse().catch(console.error));
+  el('refreshTransactions').addEventListener('click', () => loadWarehouse().catch(console.error));
+  el('adjustStock').addEventListener('click', async () => {
+    const stockItemId = el('adjustStockItem').value;
+    const delta = Number(el('adjustDelta').value || 0);
+    const reason = el('adjustReason').value.trim();
+    if (!stockItemId || !delta || !reason) return;
+    await readJson('/api/stock/adjust', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stock_item_id: stockItemId, delta, reason }),
+    });
+    el('adjustDelta').value = '';
+    el('adjustReason').value = '';
+    await loadWarehouse();
+  });
+  el('createRequest').addEventListener('click', async () => {
+    const stockItemId = el('requestStockItem').value;
+    const plannedQty = Number(el('requestQty').value || 0);
+    const notes = el('requestNote').value.trim() || null;
+    if (!stockItemId || plannedQty <= 0) return;
+    await readJson('/api/warehouse/requests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        notes,
+        items: [{ stock_item_id: stockItemId, planned_qty: plannedQty }],
+      }),
+    });
+    el('requestQty').value = '';
+    el('requestNote').value = '';
+    await loadWarehouse();
+  });
 }
 
 async function boot() {
@@ -103,15 +185,11 @@ async function boot() {
   bindActions();
   try {
     await loadWarehouse();
-  } catch (err) {
-    console.error(err);
-    if (err.status === 401 || err.status === 403) {
-      el('stockList').innerHTML = '<p class="placeholder">Потрібен логін комірника.</p>';
-      el('requestList').innerHTML = '<p class="placeholder">Потрібен логін комірника.</p>';
-    } else {
-      el('stockList').innerHTML = '<p class="placeholder">Не вдалося завантажити /api/stock</p>';
-      el('requestList').innerHTML = '<p class="placeholder">Не вдалося завантажити /api/warehouse/requests</p>';
-    }
+  } catch (error) {
+    console.error(error);
+    el('stockList').innerHTML = '<p class="placeholder">Не вдалося завантажити склад</p>';
+    el('requestList').innerHTML = '<p class="placeholder">Не вдалося завантажити заявки</p>';
+    el('transactionsList').innerHTML = '<p class="placeholder">Не вдалося завантажити історію</p>';
   }
   setInterval(() => loadWarehouse().catch(console.error), 30000);
 }

@@ -330,6 +330,23 @@ class StockItemRead(BaseModel):
     shortage: bool
 
 
+class StockAdjustRequest(BaseModel):
+    stock_item_id: UUID
+    delta: float
+    reason: str = Field(min_length=2)
+
+
+class StockTransactionRead(BaseModel):
+    id: UUID
+    stock_item_id: UUID
+    stock_item_name: str
+    delta: float
+    reason: Optional[str]
+    task_id: Optional[UUID]
+    user_id: Optional[UUID]
+    created_at: datetime
+
+
 class WarehouseRequestItemRead(BaseModel):
     id: UUID
     stock_item_name: str
@@ -353,6 +370,18 @@ class WarehouseRequestFulfillItem(BaseModel):
 
 class WarehouseRequestFulfill(BaseModel):
     items: List[WarehouseRequestFulfillItem] = Field(default_factory=list)
+
+
+class WarehouseRequestCreateItem(BaseModel):
+    stock_item_id: UUID
+    planned_qty: float = Field(gt=0)
+
+
+class WarehouseRequestCreate(BaseModel):
+    building_id: Optional[UUID] = None
+    task_id: Optional[UUID] = None
+    notes: Optional[str] = None
+    items: List[WarehouseRequestCreateItem] = Field(default_factory=list)
 
 
 class NetworkFiberRead(BaseModel):

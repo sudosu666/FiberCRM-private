@@ -18,6 +18,7 @@ from ..models import (
     Port,
     PortStatus,
     StockItem,
+    StockTransaction,
     Task,
     TaskReport,
     TaskStatus,
@@ -41,6 +42,7 @@ from ..schemas import (
     NetworkOverview,
     BuildingNetworkRead,
     StockItemRead,
+    StockTransactionRead,
     TaskQueueItem,
     TimelineBlock,
     TimelineHour,
@@ -222,6 +224,24 @@ async def load_stock_items(session: AsyncSession) -> List[StockItemRead]:
         quantity=item.quantity,
         min_quantity=item.min_quantity,
         shortage=item.quantity < item.min_quantity,
+    ) for item in items]
+
+
+async def load_stock_transactions(session: AsyncSession) -> List[StockTransactionRead]:
+    stmt = select(StockTransaction).options(
+        selectinload(StockTransaction.stock_item),
+    ).order_by(StockTransaction.created_at.desc()).limit(100)
+    result = await session.scalars(stmt)
+    items = result.all()
+    return [StockTransactionRead(
+        id=item.id,
+        stock_item_id=item.stock_item_id,
+        stock_item_name=item.stock_item.name if item.stock_item else 'Unknown',
+        delta=item.delta,
+        reason=item.reason,
+        task_id=item.task_id,
+        user_id=item.user_id,
+        created_at=item.created_at,
     ) for item in items]
 
 

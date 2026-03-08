@@ -110,6 +110,11 @@ h1 {
   min-height: 420px;
 }
 
+.card-wide {
+  grid-column: 1 / -1;
+  min-height: auto;
+}
+
 .card-head {
   display: flex;
   justify-content: space-between;
@@ -134,6 +139,22 @@ button {
 .stack {
   display: grid;
   gap: 10px;
+}
+
+.form-box {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+input,
+select {
+  background: #182318;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
 }
 
 .item {
@@ -174,6 +195,9 @@ button {
     align-items: flex-start;
   }
   .layout {
+    grid-template-columns: 1fr;
+  }
+  .form-box {
     grid-template-columns: 1fr;
   }
   .card {
