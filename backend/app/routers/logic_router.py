@@ -136,7 +136,9 @@ ops_roles = Depends(require_roles(UserRole.Dispatcher, UserRole.Builder, UserRol
 connection_dispatcher_only = Depends(require_roles(UserRole.ConnectionDispatcher))
 subscriber_dispatch_roles = Depends(require_roles(UserRole.Dispatcher, UserRole.ConnectionDispatcher))
 
-UPLOAD_DIR = Path(__file__).resolve().parents[1] / "frontend" / "static" / "uploads"
+UPLOAD_DIR = Path(__file__).resolve().parents[3] / "frontend" / "app" / "static" / "uploads"
+if not UPLOAD_DIR.exists():
+    UPLOAD_DIR = Path(__file__).resolve().parents[1] / "frontend" / "static" / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 REPORT_MAX_UPLOAD_BYTES = 300 * 1024
@@ -721,6 +723,8 @@ async def create_subscriber_request(
         .options(
             selectinload(SubscriberRequest.building).selectinload(Building.panels).selectinload(Panel.ports),
             selectinload(SubscriberRequest.assigned_user),
+            selectinload(SubscriberRequest.contacts),
+            selectinload(SubscriberRequest.comments).selectinload(OpsComment.author),
         )
         .where(SubscriberRequest.id == request.id)
     )).one()
@@ -752,6 +756,8 @@ async def schedule_subscriber_request(
         .options(
             selectinload(SubscriberRequest.building).selectinload(Building.panels).selectinload(Panel.ports),
             selectinload(SubscriberRequest.assigned_user),
+            selectinload(SubscriberRequest.contacts),
+            selectinload(SubscriberRequest.comments).selectinload(OpsComment.author),
         )
         .where(SubscriberRequest.id == request_id)
     )).one()
@@ -782,6 +788,8 @@ async def postpone_subscriber_request(
         .options(
             selectinload(SubscriberRequest.building).selectinload(Building.panels).selectinload(Panel.ports),
             selectinload(SubscriberRequest.assigned_user),
+            selectinload(SubscriberRequest.contacts),
+            selectinload(SubscriberRequest.comments).selectinload(OpsComment.author),
         )
         .where(SubscriberRequest.id == request_id)
     )).one()

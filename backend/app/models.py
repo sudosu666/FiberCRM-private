@@ -345,7 +345,7 @@ class WarehouseRequest(SQLModel, table=True):
     fulfilled_at: Optional[datetime] = None
 
     items: list["WarehouseRequestItem"] = Relationship(back_populates="request", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
-    building: Optional[Building] = Relationship(back_populates="comments")
+    building: Optional[Building] = Relationship()
 
 
 class WarehouseRequestItem(SQLModel, table=True):

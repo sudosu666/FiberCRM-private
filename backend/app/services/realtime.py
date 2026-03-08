@@ -34,7 +34,8 @@ def _parse_timestamp(value: Optional[str]) -> datetime:
     if value.endswith('Z'):
         value = value[:-1] + '+00:00'
     try:
-        return datetime.fromisoformat(value)
+        parsed = datetime.fromisoformat(value)
+        return parsed.replace(tzinfo=None) if parsed.tzinfo else parsed
     except ValueError:
         return datetime.utcnow()
 

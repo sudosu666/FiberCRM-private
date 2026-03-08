@@ -5,13 +5,12 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 router = APIRouter()
-base_dir = Path(__file__).resolve().parents[1]
-templates_dir = base_dir / "frontend" / "templates"
+project_root = Path(__file__).resolve().parents[3]
+templates_dir = project_root / "frontend" / "app" / "templates"
 if not templates_dir.exists():
     templates_dir = Path(__file__).resolve().parents[2] / "frontend" / "templates"
 templates = Jinja2Templates(directory=str(templates_dir))
-project_root = Path(__file__).resolve().parents[3]
-dashboards_dir = project_root / "Dashboards"
+dashboards_dir = project_root / "frontend" / "prototypes"
 dashboard_designer_file = dashboards_dir / "fiber-designer.html"
 
 

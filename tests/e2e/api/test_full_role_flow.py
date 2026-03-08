@@ -67,7 +67,15 @@ def test_full_role_flow_plan_to_field() -> None:
         timeout=20.0,
     )
     assert brigades_response.status_code == 200
-    brigade_id = brigades_response.json()[0]["id"]
+    workers_response = httpx.get(
+        f"{BASE_URL}/api/field/workers",
+        headers=dispatcher,
+        timeout=20.0,
+    )
+    assert workers_response.status_code == 200
+    builder_user = next(worker for worker in workers_response.json() if worker["phone"] == "+38000000002")
+    brigade_id = builder_user["brigade_id"]
+    assert brigade_id is not None
 
     assign_response = httpx.post(
         f"{BASE_URL}/api/tasks/{plan_payload['task_ids'][0]}/assign",

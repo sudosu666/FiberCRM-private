@@ -59,7 +59,7 @@ services:
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-2000000}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
     volumes:
-      - uploads_data:/app/app/frontend/static/uploads
+      - uploads_data:/app/frontend/static/uploads
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')"]
       interval: 10s

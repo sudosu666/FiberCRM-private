@@ -243,7 +243,7 @@ class TaskQueueItem(BaseModel):
     postponed_at: Optional[datetime] = None
     postponed_over_shift: bool = False
     contacts: List["OpsContactRead"] = Field(default_factory=list)
-    comments: List[OpsCommentRead] = Field(default_factory=list)
+    comments: List["OpsCommentRead"] = Field(default_factory=list)
     status_changed_at: Optional[datetime] = None
 
 
@@ -434,7 +434,7 @@ class BuildingNetworkRead(BaseModel):
     connected_lines: int = 0
     reserved_lines: int = 0
     unclaimed_lines: int = 0
-    comments: List[OpsCommentRead] = Field(default_factory=list)
+    comments: List["OpsCommentRead"] = Field(default_factory=list)
 
 
 class BuildingNoteCreate(BaseModel):
@@ -521,7 +521,7 @@ class InfrastructureBuildingRead(BaseModel):
     unclaimed_lines: int = 0
     panels: List[InfrastructurePanelRead]
     notes: List[BuildingNoteRead] = Field(default_factory=list)
-    comments: List[OpsCommentRead] = Field(default_factory=list)
+    comments: List["OpsCommentRead"] = Field(default_factory=list)
 
 
 class BuildingSummaryRead(BaseModel):
@@ -536,7 +536,7 @@ class BuildingSummaryRead(BaseModel):
     reserved_lines: int = 0
     unclaimed_lines: int = 0
     notes: List[BuildingNoteRead] = Field(default_factory=list)
-    comments: List[OpsCommentRead] = Field(default_factory=list)
+    comments: List["OpsCommentRead"] = Field(default_factory=list)
 
 
 class NetworkPlanCreate(BaseModel):

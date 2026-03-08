@@ -1,12 +1,22 @@
 # FiberOps CRM
 
+## Repository structure
+- `backend/app` — FastAPI backend, domain models, routers, services
+- `frontend/app` — runtime UI templates and static assets
+- `frontend/prototypes` — preserved reference prototypes
+- `scripts` — dev run, e2e and operational helpers
+- `Plan` — architecture docs, schema, route/entity inventories
+
 ## Development (Docker Compose)
 1. Ensure local shell does not override DB for containers:
 - `unset DATABASE_URL`
 2. Optional explicit backend DB DSN for container:
 - `export BACKEND_DATABASE_URL=postgresql+asyncpg://fiber:fiberpass@db:5432/fibercrm`
 3. Start stack:
-- `docker compose up --build`
+- `./scripts/dev-run.sh all`
+- or `docker compose up --build`
+4. Optional debug/log mode:
+- `./scripts/dev-run.sh all --debug --log-files`
 4. Health checks:
 - `http://localhost:8000/health/live`
 - `http://localhost:8000/health/ready`
@@ -23,12 +33,25 @@
 2. For local run (outside Docker) keep:
 - `DATABASE_URL=postgresql+asyncpg://fiber:fiberpass@localhost:5432/fibercrm`
 3. Start:
-- `cd backend && uvicorn app.main:sio_app --reload`
+- `./scripts/dev-run.sh backend`
+- debug/reload/logs: `./scripts/dev-run.sh backend --debug --log-files`
 4. Verify:
 - `http://localhost:8000/health/live`
 - `http://localhost:8000/health/ready`
 - `http://localhost:8000/dispatcher`
 - `http://localhost:8000/warehouse`
+
+## Frontend preview
+- `./scripts/dev-run.sh frontend-preview`
+- Opens a static preview server on `http://127.0.0.1:3000`
+- Useful for layout review when backend is not needed
+
+## Logs
+- Optional runtime logs are written to `logs/`
+- Typical files:
+- `logs/backend.log`
+- `logs/frontend-preview.log`
+- `logs/compose.log`
 
 ## Production run
 1. Fill real secrets in `.env.prod`.
