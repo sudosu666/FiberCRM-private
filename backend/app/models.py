@@ -45,6 +45,7 @@ class TaskStatus(str, Enum):
     pending = "pending"
     assigned = "assigned"
     in_progress = "in_progress"
+    on_hold = "on_hold"
     completed = "completed"
     canceled = "canceled"
 
@@ -83,6 +84,7 @@ class User(SQLModel, table=True):
     phone: str = Field(sa_column=Column(String(20), unique=True, nullable=False))
     email: Optional[str] = Field(default=None, sa_column=Column(String(150), unique=True))
     role: UserRole = Field(sa_column=Column(PgEnum(UserRole, name="user_role")), default=UserRole.Dispatcher)
+    additional_roles: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     password_hash: str = Field(sa_column=Column(Text, nullable=False))
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -94,6 +96,7 @@ class User(SQLModel, table=True):
     notifications: list["Notification"] = Relationship(back_populates="user")
     push_subscriptions: list["PushSubscription"] = Relationship(back_populates="user")
     stock_transactions: list["StockTransaction"] = Relationship(back_populates="user")
+    work_logs: list["WorkLog"] = Relationship(back_populates="user")
 
 
 class Brigade(SQLModel, table=True):
@@ -227,8 +230,12 @@ class Task(SQLModel, table=True):
     brigade_id: Optional[UUID] = Field(default=None, foreign_key="brigades.id")
     description: Optional[str] = None
     estimated_hours: Optional[float] = None
+    is_critical: bool = Field(default=False)
+    hold_reason: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     assigned_at: Optional[datetime] = None
+    started_at: Optional[datetime] = None
+    ended_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
 
     building: Optional[Building] = Relationship(back_populates="tasks")
@@ -357,6 +364,23 @@ class Message(SQLModel, table=True):
 
     task: Task = Relationship()
     sender: User = Relationship()
+
+
+class WorkLog(SQLModel, table=True):
+    __tablename__ = "work_logs"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    user_id: Optional[UUID] = Field(default=None, foreign_key="users.id")
+    task_id: Optional[UUID] = Field(default=None, foreign_key="tasks.id")
+    event_type: str = Field(sa_column=Column(String(50), nullable=False))
+    description: Optional[str] = None
+    quantity: float = Field(default=1.0)
+    unit: str = Field(default="event")
+    event_at: datetime = Field(default_factory=datetime.utcnow)
+    recorded_at: datetime = Field(default_factory=datetime.utcnow)
+
+    user: Optional[User] = Relationship(back_populates="work_logs")
+    task: Optional[Task] = Relationship()
 
 
 class Notification(SQLModel, table=True):

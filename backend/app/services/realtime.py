@@ -18,10 +18,11 @@ from ..models import (
     TaskStatus,
     TaskStep,
     User,
-    UserRole as ModelUserRole,
+    WorkLog,
 )
 from ..schemas import UserRole
 from ..rate_limit import limiter
+from ..routers.auth_helpers import user_has_role, user_role_values
 
 sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins=settings.cors_origins)
 sid_context: dict[str, dict[str, Any]] = {}
@@ -48,10 +49,8 @@ def _to_uuid(value: Optional[str]) -> Optional[UUID]:
 
 
 async def _resolve_dispatcher(session: AsyncSession) -> Optional[User]:
-    dispatcher = (await session.scalars(
-        select(User).where(User.role == ModelUserRole.Dispatcher).limit(1)
-    )).first()
-    return dispatcher
+    users = (await session.scalars(select(User))).all()
+    return next((user for user in users if user_has_role(user, UserRole.Dispatcher)), None)
 
 
 async def _resolve_builder(session: AsyncSession, brigade_id: Optional[UUID]) -> Optional[User]:
@@ -61,9 +60,8 @@ async def _resolve_builder(session: AsyncSession, brigade_id: Optional[UUID]) ->
             builder = await session.get(User, brigade.foreman_id)
             if builder:
                 return builder
-    builder = (await session.scalars(
-        select(User).where(User.role == ModelUserRole.Builder).limit(1)
-    )).first()
+    users = (await session.scalars(select(User))).all()
+    builder = next((user for user in users if user_has_role(user, UserRole.Builder)), None)
     if builder:
         return builder
     return await _resolve_dispatcher(session)
@@ -113,8 +111,10 @@ async def connect(sid: str, environ: dict, auth: Optional[dict]) -> None:
         if not user:
             raise ConnectionRefusedError("User not found")
 
-        role = token_data.role.value if token_data.role else user.role.value
-        if role == UserRole.Dispatcher.value:
+        token_roles = {role.value if isinstance(role, UserRole) else str(role) for role in token_data.roles}
+        role_values = token_roles or user_role_values(user)
+        role = user.role.value
+        if UserRole.Dispatcher.value in role_values:
             sio.enter_room(sid, "dispatchers")
         else:
             if not brigade_id:
@@ -138,6 +138,7 @@ async def connect(sid: str, environ: dict, auth: Optional[dict]) -> None:
     sid_context[sid] = {
         "user_id": str(user.id),
         "role": role,
+        "roles": sorted(role_values),
         "brigade_id": brigade_id,
     }
     print(f"User {sid} connected as {role}")
@@ -149,8 +150,7 @@ async def disconnect(sid: str) -> None:
     print(f'Disconnected: {sid}')
 
 
-@sio.event
-async def chat_message(sid: str, data: dict[str, str]) -> None:
+async def _handle_chat_message(sid: str, data: dict[str, str]) -> None:
     if not isinstance(data, dict):
         return
     if sid not in sid_context:
@@ -168,11 +168,14 @@ async def chat_message(sid: str, data: dict[str, str]) -> None:
     brigade_id = context.get("brigade_id") or data.get("brigade_id")
     task_uuid = _to_uuid(data.get('task_id'))
     payload = {
+        'event_type': 'chat.message',
         'brigade_id': brigade_id,
         'brigade_name': data.get('brigade_name'),
         'user': data.get('user'),
         'message': data.get('message', ''),
         'timestamp': timestamp.isoformat(),
+        'event_at': timestamp.isoformat(),
+        'recorded_at': datetime.utcnow().isoformat(),
         'task_id': str(task_uuid) if task_uuid else None,
     }
     async with AsyncSessionLocal() as session:
@@ -193,14 +196,32 @@ async def chat_message(sid: str, data: dict[str, str]) -> None:
                 created_at=timestamp,
             )
             session.add(message)
+            session.add(WorkLog(
+                user_id=sender_id,
+                task_id=task.id,
+                event_type='chat.message',
+                description=payload['message'],
+                quantity=1.0,
+                unit='message',
+                event_at=timestamp,
+            ))
         await session.commit()
     await manager.broadcast_event('chat.message', payload, room='dispatchers')
     if brigade_id:
         await manager.broadcast_event('chat.message', payload, room=f'brigade_{brigade_id}')
 
 
+@sio.on("chat.message")
+async def chat_message_event(sid: str, data: dict[str, str]) -> None:
+    await _handle_chat_message(sid, data)
+
+
 @sio.event
-async def progress_update(sid: str, data: dict[str, str]) -> None:
+async def chat_message(sid: str, data: dict[str, str]) -> None:
+    await _handle_chat_message(sid, data)
+
+
+async def _handle_progress_update(sid: str, data: dict[str, str]) -> None:
     if not isinstance(data, dict):
         return
     if sid not in sid_context:
@@ -219,10 +240,13 @@ async def progress_update(sid: str, data: dict[str, str]) -> None:
     task_uuid = _to_uuid(data.get('task_id'))
     step_name = data.get('step', 'н/д')
     payload = {
+        'event_type': 'progress.update',
         'brigade_id': brigade_id,
         'brigade_name': data.get('brigade_name'),
         'step': step_name,
         'timestamp': timestamp.isoformat(),
+        'event_at': timestamp.isoformat(),
+        'recorded_at': datetime.utcnow().isoformat(),
         'task_id': str(task_uuid) if task_uuid else None,
     }
     async with AsyncSessionLocal() as session:
@@ -241,6 +265,15 @@ async def progress_update(sid: str, data: dict[str, str]) -> None:
                 next_step.done_at = timestamp
                 if builder:
                     next_step.done_by = builder.id
+            session.add(WorkLog(
+                user_id=builder.id if builder else None,
+                task_id=task.id,
+                event_type='progress.update',
+                description=step_name,
+                quantity=1.0,
+                unit='step',
+                event_at=timestamp,
+            ))
         if dispatcher:
             notification = Notification(
                 user_id=dispatcher.id,
@@ -253,3 +286,13 @@ async def progress_update(sid: str, data: dict[str, str]) -> None:
     await manager.broadcast_event('progress.update', payload, room='dispatchers')
     if brigade_id:
         await manager.broadcast_event('progress.update', payload, room=f'brigade_{brigade_id}')
+
+
+@sio.on("progress.update")
+async def progress_update_event(sid: str, data: dict[str, str]) -> None:
+    await _handle_progress_update(sid, data)
+
+
+@sio.event
+async def progress_update(sid: str, data: dict[str, str]) -> None:
+    await _handle_progress_update(sid, data)

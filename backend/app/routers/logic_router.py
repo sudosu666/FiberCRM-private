@@ -15,6 +15,7 @@ from ..config import settings
 from ..database import get_session
 from ..models import (
     Brigade,
+    BrigadeMember,
     Building,
     Fiber,
     FiberStatus,
@@ -25,6 +26,7 @@ from ..models import (
     PortStatus,
     RequestStatus,
     StockItem,
+    StockTransaction,
     Task,
     TaskReport,
     TaskStatus,
@@ -34,19 +36,25 @@ from ..models import (
     TenderStatus,
     User,
     UserRole,
+    WorkLog,
     WarehouseRequest,
     WarehouseRequestItem,
 )
 from ..rate_limit import enforce_http_rate_limit
 from ..schemas import (
     BrigadeBoardItem,
+    BrigadeUpsert,
+    FieldWorkerRead,
     TaskAssignRequest,
+    TaskStatusEventRead,
+    TaskHoldRequest,
     TaskQueueItem,
     TaskStepRead,
     TaskStepCompleteRead,
     TimelineHour,
     StockItemRead,
     WarehouseRequestRead,
+    WarehouseRequestFulfill,
     NetworkMuffleRead,
     TenderOverview,
     TenderCreate,
@@ -66,9 +74,13 @@ from ..schemas import (
     FieldMetrics,
     NetworkPlanCreate,
     NetworkPlanRead,
+    WorkSummaryRead,
 )
+from .auth_helpers import require_roles
+from .auth_helpers import user_has_role
 from ..services.logic import (
     load_brigade_board,
+    load_field_workers,
     load_network_topology,
     load_stock_items,
     load_task_queue,
@@ -78,16 +90,27 @@ from ..services.logic import (
     load_network_overview,
     load_building_network,
     load_field_metrics,
+    load_task_work_summary,
     refresh_tender_and_building_state,
 )
 from ..services.realtime import manager as realtime_manager
 
 router = APIRouter(prefix='/api')
 
+dispatcher_only = Depends(require_roles(UserRole.Dispatcher))
+designer_only = Depends(require_roles(UserRole.Designer))
+warehouse_only = Depends(require_roles(UserRole.Warehouse))
+field_roles = Depends(require_roles(UserRole.Builder, UserRole.Welder, UserRole.Connector))
+ops_roles = Depends(require_roles(UserRole.Dispatcher, UserRole.Builder, UserRole.Welder, UserRole.Connector))
+
 UPLOAD_DIR = Path(__file__).resolve().parents[1] / "frontend" / "static" / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 REPORT_MAX_UPLOAD_BYTES = 300 * 1024
+
+
+def _now_iso() -> str:
+    return datetime.utcnow().isoformat()
 
 
 def _decode_photo_payload(raw_data: str, max_bytes: int) -> bytes:
@@ -124,26 +147,30 @@ async def _resolve_builder_user(session: AsyncSession, brigade_id: Optional[UUID
         if brigade and brigade.foreman_id:
             builder = await session.get(User, brigade.foreman_id)
         if brigade and not builder:
-            builder = (await session.scalars(
-                select(User).where(User.role == UserRole.Builder).limit(1)
-            )).first()
+            users = (await session.scalars(select(User))).all()
+            builder = next((user for user in users if user_has_role(user, UserRole.Builder)), None)
     if not builder:
-        builder = (await session.scalars(
-            select(User).where(User.role == UserRole.Builder).limit(1)
-        )).first()
+        users = (await session.scalars(select(User))).all()
+        builder = next((user for user in users if user_has_role(user, UserRole.Builder)), None)
     if not builder:
-        builder = (await session.scalars(
-            select(User).where(User.role == UserRole.Dispatcher).limit(1)
-        )).first()
+        users = (await session.scalars(select(User))).all()
+        builder = next((user for user in users if user_has_role(user, UserRole.Dispatcher)), None)
     return builder
 
 @router.get('/tasks', response_model=List[TaskQueueItem])
-async def get_tasks(session: AsyncSession = Depends(get_session)) -> List[TaskQueueItem]:
+async def get_tasks(
+    session: AsyncSession = Depends(get_session),
+    _: User = dispatcher_only,
+) -> List[TaskQueueItem]:
     return await load_task_queue(session)
 
 
 @router.get('/tasks/{task_id}/steps', response_model=List[TaskStepRead])
-async def get_task_steps(task_id: UUID, session: AsyncSession = Depends(get_session)) -> List[TaskStepRead]:
+async def get_task_steps(
+    task_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    _: User = ops_roles,
+) -> List[TaskStepRead]:
     task = await session.get(Task, task_id)
     if not task:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Task not found')
@@ -169,6 +196,7 @@ async def complete_task_step(
     task_id: UUID,
     step_id: UUID,
     session: AsyncSession = Depends(get_session),
+    current_user: User = field_roles,
 ) -> TaskStepCompleteRead:
     task = await session.get(Task, task_id)
     if not task:
@@ -178,16 +206,29 @@ async def complete_task_step(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Step not found')
     step.is_done = True
     step.done_at = datetime.utcnow()
+    step.done_by = current_user.id
     task.status = TaskStatus.in_progress
     session.add(step)
     session.add(task)
+    session.add(WorkLog(
+        user_id=current_user.id,
+        task_id=task.id,
+        event_type='task.step.completed',
+        description=step.title,
+        quantity=1.0,
+        unit='step',
+        event_at=step.done_at,
+    ))
     await session.flush()
     await refresh_tender_and_building_state(session, task)
     await session.commit()
     payload = {
+        'event_type': 'task.step.completed',
         'task_id': str(task.id),
         'step': step.title,
         'timestamp': step.done_at.isoformat() if step.done_at else datetime.utcnow().isoformat(),
+        'event_at': step.done_at.isoformat() if step.done_at else _now_iso(),
+        'recorded_at': _now_iso(),
     }
     await realtime_manager.broadcast_event('progress.update', payload, room='dispatchers')
     return TaskStepCompleteRead(
@@ -195,13 +236,133 @@ async def complete_task_step(
         step_id=step.id,
         is_done=step.is_done,
         done_at=step.done_at,
+        event_at=step.done_at,
     )
+
+
+@router.patch('/tasks/{task_id}/start', response_model=TaskStatusEventRead)
+async def start_task(
+    task_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = field_roles,
+) -> TaskStatusEventRead:
+    task = await session.get(Task, task_id)
+    if not task:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Task not found')
+    event_at = datetime.utcnow()
+    task.status = TaskStatus.in_progress
+    task.started_at = task.started_at or event_at
+    task.hold_reason = None
+    task.is_critical = False
+    session.add(task)
+    session.add(WorkLog(
+        user_id=current_user.id,
+        task_id=task.id,
+        event_type='task.started',
+        description='Task started by field worker',
+        quantity=1.0,
+        unit='task',
+        event_at=event_at,
+    ))
+    await session.flush()
+    await refresh_tender_and_building_state(session, task)
+    await session.commit()
+    await realtime_manager.broadcast_event('task.status', {
+        'event_type': 'task.started',
+        'task_id': str(task.id),
+        'status': task.status.value,
+        'event_at': event_at.isoformat(),
+        'recorded_at': _now_iso(),
+        'is_critical': task.is_critical,
+        'hold_reason': task.hold_reason,
+    }, room='dispatchers')
+    return TaskStatusEventRead(task_id=task.id, status=task.status, event_at=event_at, hold_reason=task.hold_reason, is_critical=task.is_critical)
+
+
+@router.patch('/tasks/{task_id}/finish', response_model=TaskStatusEventRead)
+async def finish_task(
+    task_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = field_roles,
+) -> TaskStatusEventRead:
+    task = await session.get(Task, task_id)
+    if not task:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Task not found')
+    event_at = datetime.utcnow()
+    task.status = TaskStatus.completed
+    task.ended_at = event_at
+    task.completed_at = event_at
+    task.hold_reason = None
+    task.is_critical = False
+    session.add(task)
+    session.add(WorkLog(
+        user_id=current_user.id,
+        task_id=task.id,
+        event_type='task.finished',
+        description='Task finished by field worker',
+        quantity=1.0,
+        unit='task',
+        event_at=event_at,
+    ))
+    await session.flush()
+    await refresh_tender_and_building_state(session, task)
+    await session.commit()
+    await realtime_manager.broadcast_event('task.status', {
+        'event_type': 'task.finished',
+        'task_id': str(task.id),
+        'status': task.status.value,
+        'event_at': event_at.isoformat(),
+        'recorded_at': _now_iso(),
+        'is_critical': task.is_critical,
+        'hold_reason': task.hold_reason,
+    }, room='dispatchers')
+    return TaskStatusEventRead(task_id=task.id, status=task.status, event_at=event_at, hold_reason=task.hold_reason, is_critical=task.is_critical)
+
+
+@router.patch('/tasks/{task_id}/hold', response_model=TaskStatusEventRead)
+async def hold_task(
+    task_id: UUID,
+    body: TaskHoldRequest,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = field_roles,
+) -> TaskStatusEventRead:
+    task = await session.get(Task, task_id)
+    if not task:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Task not found')
+    event_at = datetime.utcnow()
+    task.status = TaskStatus.on_hold
+    task.hold_reason = body.reason
+    task.is_critical = body.is_critical
+    session.add(task)
+    session.add(WorkLog(
+        user_id=current_user.id,
+        task_id=task.id,
+        event_type='task.on_hold',
+        description=body.reason,
+        quantity=1.0,
+        unit='incident',
+        event_at=event_at,
+    ))
+    await session.flush()
+    await refresh_tender_and_building_state(session, task)
+    await session.commit()
+    await realtime_manager.broadcast_event('task.status', {
+        'event_type': 'task.on_hold',
+        'task_id': str(task.id),
+        'status': task.status.value,
+        'event_at': event_at.isoformat(),
+        'recorded_at': _now_iso(),
+        'is_critical': task.is_critical,
+        'hold_reason': task.hold_reason,
+    }, room='dispatchers')
+    return TaskStatusEventRead(task_id=task.id, status=task.status, event_at=event_at, hold_reason=task.hold_reason, is_critical=task.is_critical)
 
 @router.post('/tasks/{task_id}/assign', response_model=TaskQueueItem)
 async def assign_task(
     task_id: UUID,
     body: TaskAssignRequest,
     session: AsyncSession = Depends(get_session),
+    current_user: User = dispatcher_only,
 ) -> TaskQueueItem:
     task = await session.get(Task, task_id)
     if not task:
@@ -210,37 +371,162 @@ async def assign_task(
     task.status = TaskStatus.assigned
     task.assigned_at = datetime.utcnow()
     session.add(task)
+    session.add(WorkLog(
+        user_id=current_user.id,
+        task_id=task.id,
+        event_type='task.assigned',
+        description=f'Assigned to brigade {body.brigade_id}',
+        quantity=1.0,
+        unit='assignment',
+        event_at=task.assigned_at,
+    ))
     await session.flush()
     await refresh_tender_and_building_state(session, task)
     await session.commit()
     await session.refresh(task)
     queue = await load_task_queue(session)
-    await realtime_manager.broadcast_event('task_queue.update', [item.dict() for item in queue])
+    event_at = task.assigned_at.isoformat() if task.assigned_at else _now_iso()
+    await realtime_manager.broadcast_event('task_queue.update', {
+        'event_type': 'task_queue.update',
+        'event_at': event_at,
+        'recorded_at': _now_iso(),
+        'items': [item.dict() for item in queue],
+    })
     brigade_board = await load_brigade_board(session)
-    await realtime_manager.broadcast_event('brigade_board.update', [item.dict() for item in brigade_board])
+    await realtime_manager.broadcast_event('brigade_board.update', {
+        'event_type': 'brigade_board.update',
+        'event_at': event_at,
+        'recorded_at': _now_iso(),
+        'items': [item.dict() for item in brigade_board],
+    })
     for item in queue:
-        if item.id == str(task.id):
+        if item.id == task.id:
             return item
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='Unable to build task payload')
 
 @router.get('/brigades', response_model=List[BrigadeBoardItem])
-async def get_brigades(session: AsyncSession = Depends(get_session)) -> List[BrigadeBoardItem]:
+async def get_brigades(
+    session: AsyncSession = Depends(get_session),
+    _: User = dispatcher_only,
+) -> List[BrigadeBoardItem]:
     return await load_brigade_board(session)
 
+
+@router.get('/field/workers', response_model=List[FieldWorkerRead])
+async def get_field_workers(
+    session: AsyncSession = Depends(get_session),
+    _: User = dispatcher_only,
+) -> List[FieldWorkerRead]:
+    return await load_field_workers(session)
+
+
+@router.post('/brigades', response_model=BrigadeBoardItem, status_code=status.HTTP_201_CREATED)
+async def create_brigade(
+    body: BrigadeUpsert,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = dispatcher_only,
+) -> BrigadeBoardItem:
+    brigade = Brigade(
+        name=body.name,
+        type=body.type,
+        foreman_id=body.foreman_id,
+        is_active=body.is_active,
+    )
+    session.add(brigade)
+    await session.flush()
+    for member_id in sorted(set(body.member_ids)):
+        session.add(BrigadeMember(brigade_id=brigade.id, user_id=member_id))
+    session.add(WorkLog(
+        user_id=current_user.id,
+        event_type='brigade.created',
+        description=f'{body.name} ({body.type.value})',
+        quantity=float(len(set(body.member_ids))),
+        unit='member',
+        event_at=datetime.utcnow(),
+    ))
+    await session.commit()
+    board = await load_brigade_board(session)
+    await realtime_manager.broadcast_event('brigade_board.update', {
+        'event_type': 'brigade_board.update',
+        'event_at': _now_iso(),
+        'recorded_at': _now_iso(),
+        'items': [item.dict() for item in board],
+    })
+    for item in board:
+        if item.id == brigade.id:
+            return item
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='Unable to build brigade payload')
+
+
+@router.patch('/brigades/{brigade_id}', response_model=BrigadeBoardItem)
+async def update_brigade(
+    brigade_id: UUID,
+    body: BrigadeUpsert,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = dispatcher_only,
+) -> BrigadeBoardItem:
+    brigade = await session.get(Brigade, brigade_id)
+    if not brigade:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Brigade not found')
+    brigade.name = body.name
+    brigade.type = body.type
+    brigade.foreman_id = body.foreman_id
+    brigade.is_active = body.is_active
+    session.add(brigade)
+    existing = (await session.scalars(select(BrigadeMember).where(BrigadeMember.brigade_id == brigade.id))).all()
+    for member in existing:
+        await session.delete(member)
+    await session.flush()
+    for member_id in sorted(set(body.member_ids)):
+        session.add(BrigadeMember(brigade_id=brigade.id, user_id=member_id))
+    session.add(WorkLog(
+        user_id=current_user.id,
+        event_type='brigade.updated',
+        description=f'{body.name} ({body.type.value})',
+        quantity=float(len(set(body.member_ids))),
+        unit='member',
+        event_at=datetime.utcnow(),
+    ))
+    await session.commit()
+    board = await load_brigade_board(session)
+    await realtime_manager.broadcast_event('brigade_board.update', {
+        'event_type': 'brigade_board.update',
+        'event_at': _now_iso(),
+        'recorded_at': _now_iso(),
+        'items': [item.dict() for item in board],
+    })
+    for item in board:
+        if item.id == brigade.id:
+            return item
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='Unable to build brigade payload')
+
 @router.get('/timeline', response_model=List[TimelineHour])
-async def get_timeline(session: AsyncSession = Depends(get_session)) -> List[TimelineHour]:
+async def get_timeline(
+    session: AsyncSession = Depends(get_session),
+    _: User = dispatcher_only,
+) -> List[TimelineHour]:
     return await load_timeline(session)
 
 @router.get('/network/topology', response_model=List[NetworkMuffleRead])
-async def get_network(session: AsyncSession = Depends(get_session)) -> List[NetworkMuffleRead]:
+async def get_network(
+    session: AsyncSession = Depends(get_session),
+    _: User = designer_only,
+) -> List[NetworkMuffleRead]:
     return await load_network_topology(session)
 
 @router.get('/network/overview', response_model=NetworkOverview)
-async def get_network_overview(session: AsyncSession = Depends(get_session)) -> NetworkOverview:
+async def get_network_overview(
+    session: AsyncSession = Depends(get_session),
+    _: User = designer_only,
+) -> NetworkOverview:
     return await load_network_overview(session)
 
 @router.get('/buildings/{building_id}/network', response_model=BuildingNetworkRead)
-async def get_building_network(building_id: UUID, session: AsyncSession = Depends(get_session)) -> BuildingNetworkRead:
+async def get_building_network(
+    building_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    _: User = designer_only,
+) -> BuildingNetworkRead:
     record = await load_building_network(session, building_id)
     if not record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Building not found')
@@ -248,7 +534,11 @@ async def get_building_network(building_id: UUID, session: AsyncSession = Depend
 
 
 @router.post('/network/buildings/{building_id}/calculate', response_model=BuildingCalculateRead)
-async def calculate_building_network(building_id: UUID, session: AsyncSession = Depends(get_session)) -> BuildingCalculateRead:
+async def calculate_building_network(
+    building_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    _: User = designer_only,
+) -> BuildingCalculateRead:
     building = await session.get(Building, building_id)
     if not building:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Building not found')
@@ -272,7 +562,11 @@ async def calculate_building_network(building_id: UUID, session: AsyncSession = 
 
 
 @router.get('/network/muffles/{muffle_id}/capacity', response_model=MuffleCapacityRead)
-async def get_muffle_capacity(muffle_id: UUID, session: AsyncSession = Depends(get_session)) -> MuffleCapacityRead:
+async def get_muffle_capacity(
+    muffle_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    _: User = designer_only,
+) -> MuffleCapacityRead:
     muffle = await session.get(Muffle, muffle_id)
     if not muffle:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Muffle not found')
@@ -300,6 +594,7 @@ async def get_muffle_capacity(muffle_id: UUID, session: AsyncSession = Depends(g
 async def create_network_plan(
     body: NetworkPlanCreate,
     session: AsyncSession = Depends(get_session),
+    _: User = designer_only,
 ) -> NetworkPlanRead:
     tender: Optional[Tender] = None
     if body.tender_id:
@@ -417,7 +712,10 @@ async def create_network_plan(
 
 
 @router.get('/network/infrastructure', response_model=List[InfrastructureBuildingRead])
-async def get_infrastructure_registry(session: AsyncSession = Depends(get_session)) -> List[InfrastructureBuildingRead]:
+async def get_infrastructure_registry(
+    session: AsyncSession = Depends(get_session),
+    _: User = dispatcher_only,
+) -> List[InfrastructureBuildingRead]:
     buildings = (await session.scalars(
         select(Building).where(Building.infrastructure_status == InfraStatus.completed)
     )).all()
@@ -455,12 +753,19 @@ async def get_infrastructure_registry(session: AsyncSession = Depends(get_sessio
 
 
 @router.get('/tenders', response_model=List[TenderOverview])
-async def get_tenders(session: AsyncSession = Depends(get_session)) -> List[TenderOverview]:
+async def get_tenders(
+    session: AsyncSession = Depends(get_session),
+    _: User = designer_only,
+) -> List[TenderOverview]:
     return await load_tenders(session)
 
 
 @router.post('/tenders', response_model=TenderOverview, status_code=status.HTTP_201_CREATED)
-async def create_tender(body: TenderCreate, session: AsyncSession = Depends(get_session)) -> TenderOverview:
+async def create_tender(
+    body: TenderCreate,
+    session: AsyncSession = Depends(get_session),
+    _: User = designer_only,
+) -> TenderOverview:
     tender = Tender(
         name=body.name,
         customer=body.customer,
@@ -478,7 +783,11 @@ async def create_tender(body: TenderCreate, session: AsyncSession = Depends(get_
 
 
 @router.get('/tenders/{tender_id}', response_model=TenderOverview)
-async def get_tender(tender_id: UUID, session: AsyncSession = Depends(get_session)) -> TenderOverview:
+async def get_tender(
+    tender_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    _: User = designer_only,
+) -> TenderOverview:
     records = await load_tenders(session)
     for record in records:
         if record.id == tender_id:
@@ -491,6 +800,7 @@ async def update_tender_status(
     tender_id: UUID,
     body: TenderStatusUpdate,
     session: AsyncSession = Depends(get_session),
+    _: User = designer_only,
 ) -> TenderOverview:
     tender = await session.get(Tender, tender_id)
     if not tender:
@@ -518,7 +828,11 @@ async def update_tender_status(
 
 
 @router.get('/tenders/{tender_id}/dashboard', response_model=TenderDashboardRead)
-async def get_tender_dashboard(tender_id: UUID, session: AsyncSession = Depends(get_session)) -> TenderDashboardRead:
+async def get_tender_dashboard(
+    tender_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    _: User = designer_only,
+) -> TenderDashboardRead:
     tender = await session.get(Tender, tender_id)
     if not tender:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Tender not found')
@@ -556,7 +870,11 @@ async def get_tender_dashboard(tender_id: UUID, session: AsyncSession = Depends(
 
 
 @router.post('/tenders/{tender_id}/complete', response_model=TenderCompleteRead)
-async def complete_tender(tender_id: UUID, session: AsyncSession = Depends(get_session)) -> TenderCompleteRead:
+async def complete_tender(
+    tender_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    _: User = designer_only,
+) -> TenderCompleteRead:
     tender = await session.get(Tender, tender_id)
     if not tender:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Tender not found')
@@ -582,17 +900,112 @@ async def complete_tender(tender_id: UUID, session: AsyncSession = Depends(get_s
     )
 
 @router.get('/stock', response_model=List[StockItemRead])
-async def get_stock(session: AsyncSession = Depends(get_session)) -> List[StockItemRead]:
+async def get_stock(
+    session: AsyncSession = Depends(get_session),
+    _: User = warehouse_only,
+) -> List[StockItemRead]:
     return await load_stock_items(session)
 
 @router.get('/warehouse/requests', response_model=List[WarehouseRequestRead])
-async def get_requests(session: AsyncSession = Depends(get_session)) -> List[WarehouseRequestRead]:
+async def get_requests(
+    session: AsyncSession = Depends(get_session),
+    _: User = warehouse_only,
+) -> List[WarehouseRequestRead]:
     return await load_warehouse_requests(session)
 
 
+@router.post('/warehouse/requests/{request_id}/fulfill', response_model=WarehouseRequestRead)
+async def fulfill_request(
+    request_id: UUID,
+    body: WarehouseRequestFulfill,
+    session: AsyncSession = Depends(get_session),
+    warehouse_user: User = warehouse_only,
+) -> WarehouseRequestRead:
+    req = await session.get(WarehouseRequest, request_id)
+    if not req:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Warehouse request not found')
+    if req.status == RequestStatus.fulfilled:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Warehouse request already fulfilled')
+
+    items = (await session.scalars(
+        select(WarehouseRequestItem)
+        .options(selectinload(WarehouseRequestItem.stock_item))
+        .where(WarehouseRequestItem.request_id == req.id)
+    )).all()
+    if not items:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Warehouse request has no items')
+
+    requested_map = {entry.item_id: entry.fulfilled_qty for entry in body.items}
+    any_progress = False
+    all_fulfilled = True
+
+    for item in items:
+        stock_item = item.stock_item
+        if not stock_item:
+            continue
+        already_fulfilled = item.fulfilled_qty or 0.0
+        remaining = max(0.0, item.planned_qty - already_fulfilled)
+        requested_qty = requested_map.get(item.id, remaining)
+        qty_to_fulfill = min(remaining, requested_qty, max(0.0, stock_item.quantity))
+        if qty_to_fulfill > 0:
+            stock_item.quantity -= qty_to_fulfill
+            item.fulfilled_qty = already_fulfilled + qty_to_fulfill
+            session.add(stock_item)
+            session.add(item)
+            session.add(StockTransaction(
+                stock_item_id=stock_item.id,
+                delta=-qty_to_fulfill,
+                reason=f'warehouse_request:{req.id}',
+                task_id=req.task_id,
+                user_id=warehouse_user.id,
+            ))
+            session.add(WorkLog(
+                user_id=warehouse_user.id,
+                task_id=req.task_id,
+                event_type='warehouse.request.fulfilled',
+                description=f'{stock_item.name}: {qty_to_fulfill}',
+                quantity=qty_to_fulfill,
+                unit=stock_item.unit,
+                event_at=datetime.utcnow(),
+            ))
+            any_progress = True
+        if (item.fulfilled_qty or 0.0) < item.planned_qty:
+            all_fulfilled = False
+
+    if not any_progress:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='No stock available to fulfill request')
+
+    req.status = RequestStatus.fulfilled if all_fulfilled else RequestStatus.partial
+    if req.status == RequestStatus.fulfilled:
+        req.fulfilled_at = datetime.utcnow()
+    session.add(req)
+    await session.commit()
+
+    records = await load_warehouse_requests(session)
+    for record in records:
+        if record.id == req.id:
+            return record
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='Unable to build warehouse request payload')
+
+
 @router.get('/field/metrics', response_model=FieldMetrics)
-async def get_field_metrics(session: AsyncSession = Depends(get_session)) -> FieldMetrics:
+async def get_field_metrics(
+    session: AsyncSession = Depends(get_session),
+    _: User = field_roles,
+) -> FieldMetrics:
     return await load_field_metrics(session)
+
+
+@router.get('/tasks/{task_id}/work-summary', response_model=WorkSummaryRead)
+async def get_task_work_summary(
+    task_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    _: User = ops_roles,
+) -> WorkSummaryRead:
+    summary = await load_task_work_summary(session, task_id)
+    if not summary:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Task not found')
+    return summary
 
 
 @router.post('/tasks/{task_id}/reports', response_model=TaskReportRead, status_code=status.HTTP_201_CREATED)
@@ -601,6 +1014,7 @@ async def create_task_report(
     task_id: UUID,
     body: TaskReportCreate,
     session: AsyncSession = Depends(get_session),
+    current_user: User = field_roles,
 ) -> TaskReportRead:
     enforce_http_rate_limit(
         request,
@@ -619,22 +1033,34 @@ async def create_task_report(
     brigade_name = body.brigade_name or builder.name
     report = TaskReport(
         task_id=task.id,
-        user_id=builder.id,
+        user_id=current_user.id,
         photo_url=photo_url,
         comment=body.comment,
         brigade_id=body.brigade_id,
         brigade_name=brigade_name,
     )
     session.add(report)
+    session.add(WorkLog(
+        user_id=current_user.id,
+        task_id=task.id,
+        event_type='task.photo.reported',
+        description=body.comment or photo_url,
+        quantity=1.0,
+        unit='photo',
+        event_at=report.created_at,
+    ))
     await session.commit()
     await session.refresh(report)
     payload = {
+        'event_type': 'task.photo.reported',
         'task_id': str(task.id),
         'brigade_id': str(body.brigade_id) if body.brigade_id else None,
         'brigade_name': report.brigade_name,
         'photo_url': report.photo_url,
         'comment': report.comment,
         'created_at': report.created_at.isoformat(),
+        'event_at': report.created_at.isoformat(),
+        'recorded_at': _now_iso(),
     }
     await realtime_manager.broadcast_event('photo.report', payload, room='dispatchers')
     if body.brigade_id:
@@ -648,4 +1074,5 @@ async def create_task_report(
         photo_url=report.photo_url,
         comment=report.comment,
         created_at=report.created_at,
+        event_at=report.created_at,
     )

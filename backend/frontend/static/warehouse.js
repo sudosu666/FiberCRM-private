@@ -1,16 +1,18 @@
 'use strict';
 
+function getAuthHeaders(extra = {}) {
+  return FiberAuth.getAuthHeaders(extra);
+}
+
 function el(id) {
   return document.getElementById(id);
 }
 
-async function readJson(url) {
-  const response = await fetch(url);
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`${response.status} ${url} ${text}`);
-  }
-  return response.json();
+async function readJson(url, options = {}) {
+  return FiberAuth.fetchJson(url, {
+    ...options,
+    headers: getAuthHeaders(options.headers || {}),
+  });
 }
 
 function renderStock(items) {
@@ -27,6 +29,7 @@ function renderStock(items) {
         <p class="title">${item.name}</p>
         <p class="sub">Залишок: ${item.quantity} ${item.unit}</p>
         <p class="sub">Мінімум: ${item.min_quantity} ${item.unit}</p>
+        <p class="sub">${item.shortage ? 'Дефіцит' : 'Норма'}</p>
       </article>
     `;
   }).join('');
@@ -45,9 +48,31 @@ function renderRequests(items) {
         <p class="title">${request.building_address || 'Без адреси'}</p>
         <p class="sub">Статус: ${request.status}</p>
         <p class="sub">${parts || 'Без позицій'}</p>
+        <button type="button" data-request-id="${request.id}" ${request.status === 'fulfilled' ? 'disabled' : ''}>Закрити заявку</button>
       </article>
     `;
   }).join('');
+
+  mount.querySelectorAll('button[data-request-id]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const requestId = button.getAttribute('data-request-id');
+      if (!requestId) {
+        return;
+      }
+      button.disabled = true;
+      try {
+        await readJson(`/api/warehouse/requests/${requestId}/fulfill`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items: [] }),
+        });
+        await loadWarehouse();
+      } catch (error) {
+        console.error(error);
+        button.disabled = false;
+      }
+    });
+  });
 }
 
 async function loadWarehouse() {
@@ -65,13 +90,28 @@ function bindActions() {
 }
 
 async function boot() {
+  try {
+    await FiberAuth.requireAuth({ roles: ['Warehouse'] });
+    FiberAuth.bindUserBar();
+  } catch (error) {
+    if (error.message === 'forbidden-role') {
+      window.location.href = FiberAuth.routeForRoles(FiberAuth.getStoredUser());
+      return;
+    }
+    throw error;
+  }
   bindActions();
   try {
     await loadWarehouse();
   } catch (err) {
     console.error(err);
-    el('stockList').innerHTML = '<p class="placeholder">Не вдалося завантажити /api/stock</p>';
-    el('requestList').innerHTML = '<p class="placeholder">Не вдалося завантажити /api/warehouse/requests</p>';
+    if (err.status === 401 || err.status === 403) {
+      el('stockList').innerHTML = '<p class="placeholder">Потрібен логін комірника.</p>';
+      el('requestList').innerHTML = '<p class="placeholder">Потрібен логін комірника.</p>';
+    } else {
+      el('stockList').innerHTML = '<p class="placeholder">Не вдалося завантажити /api/stock</p>';
+      el('requestList').innerHTML = '<p class="placeholder">Не вдалося завантажити /api/warehouse/requests</p>';
+    }
   }
   setInterval(() => loadWarehouse().catch(console.error), 30000);
 }

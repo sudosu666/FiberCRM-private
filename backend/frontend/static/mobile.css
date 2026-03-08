@@ -191,6 +191,27 @@ button.btn.primary {
   font-size: 0.8rem;
 }
 
+.task-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.hold-box {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.hold-box input[type="text"] {
+  flex: 1 1 220px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  padding: 10px 12px;
+}
+
 .photo-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));

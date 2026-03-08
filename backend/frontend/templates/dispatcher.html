@@ -12,11 +12,22 @@
       <p class="kicker">FiberOps CRM</p>
       <h1>Панель диспетчера</h1>
     </div>
-    <nav class="role-nav">
-      <a class="active" href="/dispatcher">Диспетчер</a>
-      <a href="/field">Робочі</a>
-      <a href="/warehouse">Склад</a>
-    </nav>
+    <div class="topbar-side">
+      <nav class="role-nav">
+        <a class="active" href="/dispatcher">Диспетчер</a>
+        <a href="/designer">Проєктувальник</a>
+        <a href="/field">Робочі</a>
+        <a href="/warehouse">Склад</a>
+      </nav>
+      <div class="auth-box">
+        <div>
+          <p id="authUserName" class="auth-name">Гість</p>
+          <p id="authUserRole" class="auth-role">Без авторизації</p>
+        </div>
+        <a id="authLoginLink" href="/login">Login</a>
+        <button id="authLogoutButton" type="button" hidden>Logout</button>
+      </div>
+    </div>
   </header>
 
   <main class="layout">
@@ -34,6 +45,22 @@
       <div class="card-head">
         <h2>Бригади</h2>
         <span id="brigadesCounter" class="meta">0</span>
+      </div>
+      <div class="card-head">
+        <h2>Сформувати групу</h2>
+      </div>
+      <div class="stack">
+        <input id="groupName" type="text" placeholder="Назва групи">
+        <select id="groupType">
+          <option value="construction">Будівельна</option>
+          <option value="welding">Зварювальна</option>
+          <option value="connection">Підключення</option>
+        </select>
+        <select id="groupForeman">
+          <option value="">Бригадир</option>
+        </select>
+        <select id="groupMembers" multiple size="6"></select>
+        <button id="createGroup" type="button">Створити групу</button>
       </div>
       <div id="brigadesList" class="stack">
         <p class="placeholder">Завантаження бригад...</p>
@@ -55,8 +82,19 @@
         <p class="placeholder">Очікування подій...</p>
       </div>
     </section>
+
+    <section class="card card-wide">
+      <div class="card-head">
+        <h2>Користувачі та ролі</h2>
+        <button id="refreshUsers" type="button">Оновити</button>
+      </div>
+      <div id="usersList" class="stack">
+        <p class="placeholder">Завантаження користувачів...</p>
+      </div>
+    </section>
   </main>
 
+  <script src="/static/auth.js"></script>
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script src="/static/dispatcher.js"></script>
 </body>

@@ -12,12 +12,7 @@ const state = {
 function el(id) { return document.getElementById(id); }
 
 async function readJson(url, options) {
-  const response = await fetch(url, options);
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`${response.status} ${url} ${text}`);
-  }
-  return response.json();
+  return FiberAuth.fetchJson(url, options || {});
 }
 
 function calculateNeeds() {
@@ -182,6 +177,15 @@ async function savePlan() {
 }
 
 function boot() {
+  FiberAuth.requireAuth({ roles: ['Designer', 'Dispatcher'] })
+    .then(() => FiberAuth.bindUserBar())
+    .catch((error) => {
+      if (error.message === 'forbidden-role') {
+        window.location.href = FiberAuth.routeForRoles(FiberAuth.getStoredUser());
+        return;
+      }
+      throw error;
+    });
   el('calcBtn').addEventListener('click', calculateNeeds);
   el('saveBtn').addEventListener('click', savePlan);
   ['entrances', 'floors', 'flats', 'floorHeight', 'panelEvery', 'distance', 'reserve']

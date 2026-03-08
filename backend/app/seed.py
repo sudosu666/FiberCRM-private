@@ -38,14 +38,43 @@ async def seed_demo_data(session: AsyncSession) -> None:
         role=UserRole.Dispatcher,
         password_hash=get_password_hash('dispatcher'),
     )
+    designer = User(
+        name='Марко Проектувальник',
+        phone='+38000000006',
+        email='designer@fiberops.local',
+        role=UserRole.Designer,
+        password_hash=get_password_hash('designer'),
+    )
     builder = User(
         name='BRG-03 Foreman',
         phone='+38000000002',
         email='builder@fiberops.local',
         role=UserRole.Builder,
+        additional_roles=UserRole.Welder.value,
         password_hash=get_password_hash('builder'),
     )
-    session.add_all([dispatcher, builder])
+    welder = User(
+        name='WL-01 Foreman',
+        phone='+38000000003',
+        email='welder@fiberops.local',
+        role=UserRole.Welder,
+        password_hash=get_password_hash('welder'),
+    )
+    connector = User(
+        name='CN-01 Foreman',
+        phone='+38000000004',
+        email='connector@fiberops.local',
+        role=UserRole.Connector,
+        password_hash=get_password_hash('connector'),
+    )
+    warehouse = User(
+        name='Ірина Склад',
+        phone='+38000000005',
+        email='warehouse@fiberops.local',
+        role=UserRole.Warehouse,
+        password_hash=get_password_hash('warehouse'),
+    )
+    session.add_all([dispatcher, designer, builder, welder, connector, warehouse])
     await session.flush()
 
     tender = Tender(
@@ -102,13 +131,15 @@ async def seed_demo_data(session: AsyncSession) -> None:
 
     brigades = [
         Brigade(name='Б-1 Будівники', type=TaskType.construction),
-        Brigade(name='Б-2 Будівники', type=TaskType.construction),
+        Brigade(name='З-1 Зварники', type=TaskType.welding),
         Brigade(name='П-1 Підключення', type=TaskType.connection),
     ]
     session.add_all(brigades)
     await session.flush()
     if brigades:
         brigades[0].foreman_id = builder.id
+        brigades[1].foreman_id = welder.id
+        brigades[2].foreman_id = connector.id
 
     tasks = [
         Task(

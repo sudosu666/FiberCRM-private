@@ -26,6 +26,7 @@
   .page-label{font-size:10px;color:var(--text2);letter-spacing:2px;text-transform:uppercase}
   .tender-badge{background:var(--accent-dim);border:1px solid rgba(0,212,255,0.2);color:var(--accent);font-size:10px;padding:3px 12px;letter-spacing:1px}
   .topbar-right{margin-left:auto;display:flex;gap:10px;align-items:center}
+  .auth-mini{display:flex;align-items:center;gap:8px;color:var(--text2);font-size:10px}
   .btn{padding:7px 16px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;border:none;cursor:pointer;transition:all .15s}
   .btn-primary{background:var(--accent);color:var(--bg)}.btn-primary:hover{background:#00b8d9}
   .btn-ghost{background:transparent;color:var(--text2);border:1px solid var(--border2)}.btn-ghost:hover{border-color:var(--accent);color:var(--accent)}
@@ -161,6 +162,12 @@
   <div class="page-label">Проектувальник</div>
   <div class="tender-badge">ЖК «Сонячний» · Харків</div>
   <div class="topbar-right">
+    <div class="auth-mini">
+      <span id="authUserName">Гість</span>
+      <span id="authUserRole">Без авторизації</span>
+    </div>
+    <a id="authLoginLink" class="btn btn-ghost" href="/login">Login</a>
+    <button id="authLogoutButton" class="btn btn-ghost" type="button" hidden>Logout</button>
     <button class="btn btn-ghost" onclick="resetForm()">Скинути</button>
     <button class="btn btn-green" onclick="savePlan()">↓ Зберегти план</button>
   </div>
@@ -354,7 +361,10 @@ function g(id){return document.getElementById(id)}
 function v(id){return parseFloat(g(id).value)||0}
 function vi(id){return parseInt(g(id).value)||0}
 async function j(path,opts){
-  const r=await fetch(`${API_BASE}${path}`,opts);
+  const token=window.localStorage.getItem('fiberops_token');
+  const headers={...((opts&&opts.headers)||{})};
+  if(token)headers.Authorization=`Bearer ${token}`;
+  const r=await fetch(`${API_BASE}${path}`,{...(opts||{}),headers});
   if(!r.ok){throw new Error(`${r.status} ${path}`);}
   return r.json();
 }
@@ -641,10 +651,25 @@ async function loadRemoteData(){
 }
 
 // Init
-loadRemoteData().finally(()=>{
-  renderFiberSources();
-  update();
+window.addEventListener('DOMContentLoaded',async()=>{
+  if(window.FiberAuth){
+    try{
+      await FiberAuth.requireAuth({roles:['Designer','Dispatcher']});
+      FiberAuth.bindUserBar();
+    }catch(error){
+      if(error.message==='forbidden-role'){
+        window.location.href=FiberAuth.routeForRoles(FiberAuth.getStoredUser());
+        return;
+      }
+      throw error;
+    }
+  }
+  loadRemoteData().finally(()=>{
+    renderFiberSources();
+    update();
+  });
 });
 </script>
+<script src="/static/auth.js"></script>
 </body>
 </html>

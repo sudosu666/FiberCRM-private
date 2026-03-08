@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 from ..models import (
     Building,
     Brigade,
+    BrigadeMember,
     Fiber,
     FiberStatus,
     InfraStatus,
@@ -23,6 +24,9 @@ from ..models import (
     TaskStep,
     Tender,
     TenderStatus,
+    User,
+    UserRole,
+    WorkLog,
     WarehouseRequest,
     WarehouseRequestItem,
 )
@@ -30,6 +34,7 @@ from ..schemas import (
     BuildingMetrics,
     BrigadeBoardItem,
     BrigadeTaskSummary,
+    FieldWorkerRead,
     FieldMetrics,
     NetworkFiberRead,
     NetworkMuffleRead,
@@ -40,9 +45,12 @@ from ..schemas import (
     TimelineBlock,
     TimelineHour,
     TenderOverview,
+    WorkLogRead,
+    WorkSummaryRead,
     WarehouseRequestItemRead,
     WarehouseRequestRead,
 )
+from ..routers.auth_helpers import user_role_values
 
 
 def calculate_building_metrics(building: Building) -> BuildingMetrics:
@@ -91,10 +99,16 @@ def task_to_queue_item(task: Task) -> TaskQueueItem:
         priority=task.priority,
         description=task.description,
         building_id=str(task.building_id) if task.building_id else None,
+        brigade_id=str(task.brigade_id) if task.brigade_id else None,
         building_address=building_address,
         brigade_name=brigade_name,
         estimated_hours=task.estimated_hours,
+        is_critical=task.is_critical,
+        hold_reason=task.hold_reason,
+        started_at=task.started_at,
+        ended_at=task.ended_at,
         metrics=metrics,
+        status_changed_at=task.ended_at or task.completed_at or task.started_at or task.assigned_at or task.created_at,
     )
 
 
@@ -163,6 +177,33 @@ async def load_brigade_board(session: AsyncSession) -> List[BrigadeBoardItem]:
     return board
 
 
+async def load_field_workers(session: AsyncSession) -> List[FieldWorkerRead]:
+    users = (await session.scalars(select(User))).all()
+    memberships = (await session.scalars(
+        select(BrigadeMember).options(selectinload(BrigadeMember.brigade))
+    )).all()
+    membership_map: dict[UUID, BrigadeMember] = {member.user_id: member for member in memberships}
+    field_roles = {UserRole.Builder, UserRole.Welder, UserRole.Connector}
+    workers: list[FieldWorkerRead] = []
+    for user in users:
+        roles = [UserRole(role) for role in sorted(user_role_values(user))]
+        if not any(role in field_roles for role in roles):
+            continue
+        membership = membership_map.get(user.id)
+        brigade = membership.brigade if membership else None
+        workers.append(FieldWorkerRead(
+            id=user.id,
+            name=user.name,
+            phone=user.phone,
+            role=user.role,
+            roles=roles,
+            brigade_id=brigade.id if brigade else None,
+            brigade_name=brigade.name if brigade else None,
+        ))
+    workers.sort(key=lambda item: item.name)
+    return workers
+
+
 async def load_timeline(session: AsyncSession) -> List[TimelineHour]:
     stmt = select(Task).options(selectinload(Task.building), selectinload(Task.brigade))
     result = await session.scalars(stmt)
@@ -180,6 +221,7 @@ async def load_stock_items(session: AsyncSession) -> List[StockItemRead]:
         unit=item.unit,
         quantity=item.quantity,
         min_quantity=item.min_quantity,
+        shortage=item.quantity < item.min_quantity,
     ) for item in items]
 
 
@@ -199,6 +241,7 @@ async def load_warehouse_requests(session: AsyncSession) -> List[WarehouseReques
             notes=req.notes,
             created_at=req.created_at,
             items=[WarehouseRequestItemRead(
+                id=item.id,
                 stock_item_name=item.stock_item.name,
                 planned_qty=item.planned_qty,
                 fulfilled_qty=item.fulfilled_qty,
@@ -223,6 +266,7 @@ async def load_field_metrics(session: AsyncSession) -> FieldMetrics:
         select(func.count()).select_from(TaskStep).where(TaskStep.is_done == True)
     )
     photo_reports = await session.scalar(select(func.count()).select_from(TaskReport))
+    worklog_entries = await session.scalar(select(func.count()).select_from(WorkLog))
 
     msg_stmt = select(Message).options(selectinload(Message.sender)).order_by(Message.created_at.desc()).limit(1)
     recent_message = (await session.execute(msg_stmt)).scalars().first()
@@ -244,8 +288,40 @@ async def load_field_metrics(session: AsyncSession) -> FieldMetrics:
         steps_done=steps_done or 0,
         steps_total=steps_total or 0,
         photo_reports=photo_reports or 0,
+        worklog_entries=worklog_entries or 0,
         recent_chat=recent_chat,
         recent_photo_url=recent_photo_url,
+    )
+
+
+async def load_task_work_summary(session: AsyncSession, task_id: UUID) -> Optional[WorkSummaryRead]:
+    task = await session.get(Task, task_id)
+    if not task:
+        return None
+    logs = (await session.scalars(
+        select(WorkLog).where(WorkLog.task_id == task_id).order_by(WorkLog.event_at.desc(), WorkLog.recorded_at.desc())
+    )).all()
+    total_quantity = round(sum(log.quantity for log in logs), 2)
+    last_event_at = logs[0].event_at if logs else None
+    return WorkSummaryRead(
+        task_id=task.id,
+        entries=len(logs),
+        total_quantity=total_quantity,
+        last_event_at=last_event_at,
+        logs=[
+            WorkLogRead(
+                id=log.id,
+                user_id=log.user_id,
+                task_id=log.task_id,
+                event_type=log.event_type,
+                description=log.description,
+                quantity=log.quantity,
+                unit=log.unit,
+                event_at=log.event_at,
+                recorded_at=log.recorded_at,
+            )
+            for log in logs
+        ],
     )
 
 
@@ -368,4 +444,4 @@ def _is_completed_status(status: TaskStatus) -> bool:
 
 
 def _is_in_progress_status(status: TaskStatus) -> bool:
-    return status in {TaskStatus.assigned, TaskStatus.in_progress}
+    return status in {TaskStatus.assigned, TaskStatus.in_progress, TaskStatus.on_hold}

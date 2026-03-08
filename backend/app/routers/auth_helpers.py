@@ -1,6 +1,8 @@
 from datetime import timedelta
 from typing import Optional
 
+from collections.abc import Callable
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
@@ -15,9 +17,21 @@ from ..schemas import Token, TokenData, UserRole
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl='token')
 
 
+def user_role_values(user: User) -> set[str]:
+    roles = {user.role.value}
+    if user.additional_roles:
+        roles.update(role.strip() for role in user.additional_roles.split(",") if role.strip())
+    return roles
+
+
+def user_has_role(user: User, role: UserRole) -> bool:
+    return role.value in user_role_values(user)
+
+
 def create_token_response(user: User) -> Token:
     expires = timedelta(minutes=settings.access_token_expire_minutes)
-    token = create_access_token({'sub': user.phone, 'role': user.role.value}, expires_delta=expires)
+    roles = sorted(user_role_values(user))
+    token = create_access_token({'sub': user.phone, 'role': user.role.value, 'roles': roles}, expires_delta=expires)
     return Token(access_token=token)
 
 
@@ -49,6 +63,17 @@ async def get_current_user(token: str = Depends(oauth2_scheme), session: AsyncSe
 
 
 async def require_role(role: UserRole, current_user: User = Depends(get_current_user)) -> User:
-    if current_user.role != role:
+    if not user_has_role(current_user, role):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Insufficient rights')
     return current_user
+
+
+def require_roles(*roles: UserRole) -> Callable[[User], User]:
+    allowed = set(roles)
+
+    async def dependency(current_user: User = Depends(get_current_user)) -> User:
+        if not any(user_has_role(current_user, role) for role in allowed):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Insufficient rights')
+        return current_user
+
+    return dependency

@@ -26,6 +26,7 @@ def decode_token(token: str) -> TokenData:
         payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
         phone: Optional[str] = payload.get('sub')
         role = payload.get('role')
-        return TokenData(phone=phone, role=role)
+        roles = payload.get('roles') or ([role] if role else [])
+        return TokenData(phone=phone, role=role, roles=roles)
     except JWTError:
         raise

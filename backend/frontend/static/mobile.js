@@ -4,8 +4,8 @@ const state = {
   steps: [],
   photos: [],
   chatMessages: [],
-  brigadeId: 'BRG-03',
-  brigadeName: 'Бригада BRG-03',
+  brigadeId: null,
+  brigadeName: 'Бригада',
 };
 
 const qs = (selector) => document.querySelector(selector);
@@ -15,19 +15,59 @@ const taskList = qs('#taskList');
 const stepTimeline = qs('#stepTimeline');
 const stepBadge = qs('#stepBadge');
 const syncStatus = qs('#syncStatus');
+const taskStatusMeta = qs('#taskStatusMeta');
 const chatWindow = qs('#chatWindow');
 const chatForm = qs('#chatForm');
 const chatInput = qs('#chatInput');
 const phaseTabs = qsa('.phase-tab');
 const signalStrength = qs('#signalStrength');
 const chatStatus = qs('#chatStatus');
+const holdReasonInput = qs('#holdReason');
+const holdCriticalInput = qs('#holdCritical');
 
 let socket;
 let socketConnected = false;
+let socketSignature = null;
 const PHOTO_TARGET_BYTES = 200 * 1024;
 const PHOTO_FALLBACK_QUALITY = 0.25;
 const DB_NAME = 'fiberops-offline';
 const DB_STORE = 'queue';
+
+function getAuthToken() {
+  return window.localStorage.getItem('fiberops_token');
+}
+
+function buildAuthHeaders(extra = {}) {
+  return FiberAuth.getAuthHeaders(extra);
+}
+
+function updateBrigadeContext(task) {
+  if (!task) {
+    state.brigadeId = null;
+    state.brigadeName = 'Бригада';
+    return;
+  }
+  state.brigadeId = task.brigade_id || null;
+  state.brigadeName = task.brigade_name || 'Бригада';
+}
+
+function getCurrentTask() {
+  return state.tasks.find((task) => task.id === state.currentTaskId) || null;
+}
+
+function renderTaskMeta() {
+  const task = getCurrentTask();
+  if (!task) {
+    taskStatusMeta.textContent = 'Статус: задача не вибрана';
+    return;
+  }
+  const parts = [`Статус: ${task.status}`];
+  if (task.started_at) parts.push(`старт: ${new Date(task.started_at).toLocaleString()}`);
+  if (task.ended_at) parts.push(`фініш: ${new Date(task.ended_at).toLocaleString()}`);
+  if (task.hold_reason) parts.push(`причина: ${task.hold_reason}`);
+  if (task.is_critical) parts.push('критично');
+  taskStatusMeta.textContent = parts.join(' · ');
+}
 
 function openQueueDb() {
   return new Promise((resolve, reject) => {
@@ -63,7 +103,7 @@ async function flushQueue() {
   for (const row of rows) {
     try {
       if (row.kind === 'step') {
-        await fetch(`/api/tasks/${row.taskId}/steps/${row.stepId}/complete`, { method: 'PATCH' });
+        await apiFetch(`/api/tasks/${row.taskId}/steps/${row.stepId}/complete`, { method: 'PATCH' });
       } else if (row.kind === 'photo') {
         await persistPhotoReportInternal(row.filename, row.dataUrl, row.comment, true);
       } else if (row.kind === 'chat' && socketConnected) {
@@ -81,6 +121,11 @@ async function flushQueue() {
     }
   }
   db.close();
+}
+
+async function apiFetch(url, options = {}) {
+  const payload = await FiberAuth.fetchJson(url, { ...options, headers: buildAuthHeaders(options.headers || {}) });
+  return { json: async () => payload };
 }
 
 function dataUrlSizeBytes(dataUrl) {
@@ -138,16 +183,24 @@ async function compressPhotoFile(file) {
 
 async function loadTasks() {
   try {
-    const response = await fetch('/api/tasks');
-    if (!response.ok) throw new Error('API error');
+    const response = await apiFetch('/api/tasks');
     const payload = await response.json();
-    state.tasks = payload;
-    state.currentTaskId = payload[0]?.id ?? null;
+    state.tasks = payload.filter((task) => ['assigned', 'in_progress', 'on_hold'].includes(task.status));
+    const selectedTask = state.tasks.find((task) => task.id === state.currentTaskId) || state.tasks[0] || null;
+    state.currentTaskId = selectedTask?.id ?? null;
+    updateBrigadeContext(selectedTask);
     renderTasks();
+    renderTaskMeta();
     await loadTaskSteps();
+    ensureSocketConnection();
     syncStatus.textContent = `Синхронізовано: ${new Date().toLocaleTimeString()}`;
   } catch (error) {
-    taskList.innerHTML = '<div class="placeholder">Не вдалося отримати задачі. Спробуйте ще раз.</div>';
+    if (error.status === 401 || error.status === 403) {
+      taskList.innerHTML = '<div class="placeholder">Потрібен вхід у систему для доступу до задач.</div>';
+      syncStatus.textContent = 'Синхронізація: потрібен логін';
+    } else {
+      taskList.innerHTML = '<div class="placeholder">Не вдалося отримати задачі. Спробуйте ще раз.</div>';
+    }
     console.warn('Fetch tasks failed', error);
   }
 }
@@ -159,8 +212,7 @@ async function loadTaskSteps() {
     return;
   }
   try {
-    const response = await fetch(`/api/tasks/${state.currentTaskId}/steps`);
-    if (!response.ok) throw new Error('steps api error');
+    const response = await apiFetch(`/api/tasks/${state.currentTaskId}/steps`);
     const steps = await response.json();
     state.steps = steps.map((step) => ({
       id: step.id,
@@ -204,11 +256,28 @@ function renderTasks() {
     `;
     card.addEventListener('click', () => {
       state.currentTaskId = task.id;
+      updateBrigadeContext(task);
       renderTasks();
+      renderTaskMeta();
       loadTaskSteps();
+      ensureSocketConnection();
     });
     taskList.appendChild(card);
   });
+}
+
+async function updateTaskStatus(action, body) {
+  if (!state.currentTaskId) return;
+  try {
+    await apiFetch(`/api/tasks/${state.currentTaskId}/${action}`, {
+      method: 'PATCH',
+      headers: body ? { 'Content-Type': 'application/json' } : {},
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    await loadTasks();
+  } catch (error) {
+    console.warn(`failed to ${action} task`, error);
+  }
 }
 
 function renderSteps() {
@@ -238,7 +307,7 @@ function advanceStep() {
   renderSteps();
   const stepId = state.steps[nextStep].id;
   if (stepId && state.currentTaskId) {
-    fetch(`/api/tasks/${state.currentTaskId}/steps/${stepId}/complete`, { method: 'PATCH' })
+    apiFetch(`/api/tasks/${state.currentTaskId}/steps/${stepId}/complete`, { method: 'PATCH' })
       .catch(async () => {
         await enqueueAction({ kind: 'step', taskId: state.currentTaskId, stepId });
       });
@@ -294,7 +363,7 @@ async function persistPhotoReport(filename, dataUrl, comment) {
 async function persistPhotoReportInternal(filename, dataUrl, comment, fromQueue = false) {
   if (!state.currentTaskId) return;
   try {
-    await fetch(`/api/tasks/${state.currentTaskId}/reports`, {
+    await apiFetch(`/api/tasks/${state.currentTaskId}/reports`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -314,8 +383,22 @@ async function persistPhotoReportInternal(filename, dataUrl, comment, fromQueue 
 }
 
 function connectChat() {
+  const token = getAuthToken();
+  if (!token) {
+    chatStatus.textContent = 'token required';
+    chatStatus.style.background = 'transparent';
+    chatStatus.style.borderColor = 'var(--border)';
+    return;
+  }
+  if (!state.brigadeId) {
+    chatStatus.textContent = 'бригада не визначена';
+    chatStatus.style.background = 'transparent';
+    chatStatus.style.borderColor = 'var(--border)';
+    return;
+  }
+
   socket = io({
-    auth: { role: 'Builder', brigade_id: state.brigadeId, brigade_name: state.brigadeName },
+    auth: { token, brigade_id: state.brigadeId },
     transports: ['websocket'],
   });
 
@@ -334,9 +417,39 @@ function connectChat() {
     chatStatus.style.borderColor = 'var(--border)';
   });
 
+  socket.on('connect_error', () => {
+    socketConnected = false;
+    chatStatus.textContent = 'auth error';
+    chatStatus.style.background = 'transparent';
+    chatStatus.style.borderColor = 'var(--border)';
+  });
+
   socket.on('chat.message', (payload) => {
     appendChatMessage(payload);
   });
+}
+
+function ensureSocketConnection() {
+  const token = getAuthToken();
+  const signature = token && state.brigadeId ? `${token}:${state.brigadeId}` : null;
+  if (!signature) {
+    if (socket) {
+      socket.disconnect();
+      socket = null;
+    }
+    socketConnected = false;
+    socketSignature = null;
+    return;
+  }
+  if (socket && socket.connected && socketSignature === signature) {
+    return;
+  }
+  if (socket) {
+    socket.disconnect();
+  }
+  socketConnected = false;
+  socketSignature = signature;
+  connectChat();
 }
 
 function appendChatMessage(payload, isSelf = false) {
@@ -400,7 +513,17 @@ function updateSignalStrength() {
   signalStrength.textContent = status;
 }
 
-window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', async () => {
+  try {
+    await FiberAuth.requireAuth({ roles: ['Builder', 'Welder', 'Connector'] });
+    FiberAuth.bindUserBar();
+  } catch (error) {
+    if (error.message === 'forbidden-role') {
+      window.location.href = FiberAuth.routeForRoles(FiberAuth.getStoredUser());
+      return;
+    }
+    throw error;
+  }
   bindPhaseNav();
   qs('#refreshTasks')?.addEventListener('click', loadTasks);
   qs('#photoInput').addEventListener('change', handlePhotoUpload);
@@ -411,8 +534,15 @@ window.addEventListener('DOMContentLoaded', () => {
   loadTasks();
   renderSteps();
   renderPhotos();
-  connectChat();
+  renderTaskMeta();
   updateSignalStrength();
+  qs('#startTask').addEventListener('click', () => updateTaskStatus('start'));
+  qs('#finishTask').addEventListener('click', () => updateTaskStatus('finish'));
+  qs('#holdTask').addEventListener('click', () => {
+    const reason = holdReasonInput.value.trim();
+    if (!reason) return;
+    updateTaskStatus('hold', { reason, is_critical: holdCriticalInput.checked });
+  });
   flushQueue().catch((error) => console.warn('initial queue flush failed', error));
   window.addEventListener('online', updateSignalStrength);
   window.addEventListener('online', () => flushQueue().catch((error) => console.warn('online queue flush failed', error)));

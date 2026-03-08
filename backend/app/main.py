@@ -45,7 +45,7 @@ async def on_startup() -> None:
 
 @app.get("/")
 async def root_redirect() -> RedirectResponse:
-    return RedirectResponse(url="/dispatcher", status_code=307)
+    return RedirectResponse(url="/login", status_code=307)
 
 @app.get("/health/live")
 async def health_live() -> dict[str, str]:

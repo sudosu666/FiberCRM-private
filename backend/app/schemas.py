@@ -3,7 +3,7 @@ from enum import Enum
 from typing import List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class UserRole(str, Enum):
@@ -32,6 +32,7 @@ class TaskStatus(str, Enum):
     pending = 'pending'
     assigned = 'assigned'
     in_progress = 'in_progress'
+    on_hold = 'on_hold'
     completed = 'completed'
     canceled = 'canceled'
 
@@ -49,6 +50,7 @@ class LoginRequest(BaseModel):
 class TokenData(BaseModel):
     phone: Optional[str] = None
     role: Optional[UserRole] = None
+    roles: List[UserRole] = Field(default_factory=list)
 
 
 class UserCreate(BaseModel):
@@ -57,18 +59,25 @@ class UserCreate(BaseModel):
     password: str
     email: Optional[str] = None
     role: UserRole = UserRole.Dispatcher
+    additional_roles: List[UserRole] = Field(default_factory=list)
 
 
 class UserRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     name: str
     phone: str
     email: Optional[str]
     role: UserRole
+    roles: List[UserRole] = Field(default_factory=list)
     is_active: bool
 
-    class Config:
-        orm_mode = True
+
+class UserRoleUpdate(BaseModel):
+    role: UserRole
+    additional_roles: List[UserRole] = Field(default_factory=list)
+    is_active: bool = True
 
 
 class TaskBase(BaseModel):
@@ -81,7 +90,11 @@ class TaskBase(BaseModel):
 class TaskRead(TaskBase):
     id: UUID
     status: TaskStatus
+    is_critical: bool = False
+    hold_reason: Optional[str] = None
     created_at: datetime
+    started_at: Optional[datetime] = None
+    ended_at: Optional[datetime] = None
     completed_at: Optional[datetime]
 
 
@@ -100,6 +113,7 @@ class TaskStepCompleteRead(BaseModel):
     step_id: UUID
     is_done: bool
     done_at: Optional[datetime]
+    event_at: Optional[datetime]
 
 
 class TaskReportCreate(BaseModel):
@@ -111,6 +125,8 @@ class TaskReportCreate(BaseModel):
 
 
 class TaskReportRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     task_id: UUID
     user_id: Optional[UUID]
@@ -119,12 +135,12 @@ class TaskReportRead(BaseModel):
     photo_url: str
     comment: Optional[str]
     created_at: datetime
-
-    class Config:
-        orm_mode = True
+    event_at: datetime
 
 
 class FieldMetrics(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     total_tasks: int
     assigned_tasks: int
     in_progress_tasks: int
@@ -132,26 +148,24 @@ class FieldMetrics(BaseModel):
     steps_done: int
     steps_total: int
     photo_reports: int
+    worklog_entries: int
     recent_chat: Optional[str]
     recent_photo_url: Optional[str]
 
 
-    class Config:
-        orm_mode = True
-
-
 class TenderRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     name: str
     status: TenderStatus
     customer: str
     created_at: datetime
 
-    class Config:
-        orm_mode = True
-
 
 class TenderOverview(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     name: str
     status: TenderStatus
@@ -163,9 +177,6 @@ class TenderOverview(BaseModel):
     in_progress_tasks: int
     pending_tasks: int
     planned_cable_meters: float
-
-    class Config:
-        orm_mode = True
 
 
 class TenderCreate(BaseModel):
@@ -214,14 +225,53 @@ class TaskQueueItem(BaseModel):
     priority: int
     description: Optional[str]
     building_id: Optional[UUID]
+    brigade_id: Optional[UUID]
     building_address: Optional[str]
     brigade_name: Optional[str]
     estimated_hours: Optional[float]
+    is_critical: bool = False
+    hold_reason: Optional[str] = None
+    started_at: Optional[datetime] = None
+    ended_at: Optional[datetime] = None
     metrics: BuildingMetrics
+    status_changed_at: Optional[datetime] = None
 
 
 class TaskAssignRequest(BaseModel):
     brigade_id: UUID
+
+
+class TaskStatusEventRead(BaseModel):
+    task_id: UUID
+    status: TaskStatus
+    event_at: datetime
+    hold_reason: Optional[str] = None
+    is_critical: bool = False
+
+
+class TaskHoldRequest(BaseModel):
+    reason: str = Field(min_length=3)
+    is_critical: bool = False
+
+
+class WorkLogRead(BaseModel):
+    id: UUID
+    user_id: Optional[UUID]
+    task_id: Optional[UUID]
+    event_type: str
+    description: Optional[str]
+    quantity: float
+    unit: str
+    event_at: datetime
+    recorded_at: datetime
+
+
+class WorkSummaryRead(BaseModel):
+    task_id: UUID
+    entries: int
+    total_quantity: float
+    last_event_at: Optional[datetime]
+    logs: List[WorkLogRead]
 
 
 class BrigadeTaskSummary(BaseModel):
@@ -243,6 +293,24 @@ class BrigadeBoardItem(BaseModel):
     status_label: str
 
 
+class FieldWorkerRead(BaseModel):
+    id: UUID
+    name: str
+    phone: str
+    role: UserRole
+    roles: List[UserRole] = Field(default_factory=list)
+    brigade_id: Optional[UUID] = None
+    brigade_name: Optional[str] = None
+
+
+class BrigadeUpsert(BaseModel):
+    name: str
+    type: TaskType
+    foreman_id: Optional[UUID] = None
+    member_ids: List[UUID] = Field(default_factory=list)
+    is_active: bool = True
+
+
 class TimelineBlock(BaseModel):
     label: str
     duration_hours: float
@@ -259,9 +327,11 @@ class StockItemRead(BaseModel):
     unit: str
     quantity: float
     min_quantity: float
+    shortage: bool
 
 
 class WarehouseRequestItemRead(BaseModel):
+    id: UUID
     stock_item_name: str
     planned_qty: float
     fulfilled_qty: Optional[float]
@@ -274,6 +344,15 @@ class WarehouseRequestRead(BaseModel):
     notes: Optional[str]
     created_at: datetime
     items: List[WarehouseRequestItemRead]
+
+
+class WarehouseRequestFulfillItem(BaseModel):
+    item_id: UUID
+    fulfilled_qty: float = Field(gt=0)
+
+
+class WarehouseRequestFulfill(BaseModel):
+    items: List[WarehouseRequestFulfillItem] = Field(default_factory=list)
 
 
 class NetworkFiberRead(BaseModel):
@@ -291,6 +370,8 @@ class NetworkMuffleRead(BaseModel):
 
 
 class NetworkOverview(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     total_fibers: int
     reserved_fibers: int
     busy_fibers: int
@@ -298,9 +379,6 @@ class NetworkOverview(BaseModel):
     reserved_ports: int
     active_ports: int
     faulty_ports: int
-
-    class Config:
-        orm_mode = True
 
 
 class BuildingNetworkRead(BaseModel):

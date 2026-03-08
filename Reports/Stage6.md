@@ -13,6 +13,7 @@
 - Mobile PWA (`/field`) обновлен:
   - шаги теперь загружаются из backend вместо только локального мока
   - завершение шага отправляется в backend endpoint `.../complete`
+  - запросы к operational API выполняются с `Bearer` token, что согласует mobile flow с RBAC Stage 1/5
   - добавлена IndexedDB очередь офлайн-действий (`step`, `photo`, `chat`)
   - при `online` и при `socket connect` очередь автоматически синхронизируется
   - файл: `backend/frontend/static/mobile.js`
@@ -30,6 +31,7 @@
 ## Notes
 - Offline queue покрывает ключевые операции Stage 6 без изменения UX.
 - Существующий лимит фото 200KB на client + backend 300KB (413) сохранён.
+- Для реальной работы `/field` теперь требуется предварительный логин и наличие `fiberops_token` в браузере; без него UI остается в read-only/error состоянии.
 
 ## Next
 - Stage 7 (Warehouse / materials flow by stages plan): дожать операции склада и интеграцию заявок в execution-процесс.

@@ -30,6 +30,12 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+.topbar-side {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
 .kicker {
   margin: 0;
   font-size: 11px;
@@ -58,6 +64,35 @@ h1 {
 .role-nav a:hover {
   color: var(--text);
   border-color: var(--accent);
+}
+
+.auth-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.auth-box a {
+  color: var(--text);
+  text-decoration: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+}
+
+.auth-name,
+.auth-role {
+  margin: 0;
+  text-align: right;
+}
+
+.auth-name {
+  font-size: 12px;
+}
+
+.auth-role {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .layout {
@@ -133,6 +168,11 @@ button {
 }
 
 @media (max-width: 1100px) {
+  .topbar,
+  .topbar-side {
+    flex-direction: column;
+    align-items: flex-start;
+  }
   .layout {
     grid-template-columns: 1fr;
   }

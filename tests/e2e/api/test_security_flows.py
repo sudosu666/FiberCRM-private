@@ -20,6 +20,13 @@ def _login(phone: str = "+38000000001", password: str = "dispatcher") -> httpx.R
     )
 
 
+def _auth_headers(phone: str = "+38000000001", password: str = "dispatcher") -> dict[str, str]:
+    response = _login(phone=phone, password=password)
+    assert response.status_code == 200
+    token = response.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
 def test_health_endpoints() -> None:
     live = httpx.get(f"{BASE_URL}/health/live", timeout=20.0)
     ready = httpx.get(f"{BASE_URL}/health/ready", timeout=20.0)
@@ -29,12 +36,17 @@ def test_health_endpoints() -> None:
     assert ready.json()["status"] == "ready"
 
 
+def test_dispatcher_api_requires_auth() -> None:
+    response = httpx.get(f"{BASE_URL}/api/tasks", timeout=20.0)
+    assert response.status_code in (401, 403)
+
+
 def test_auth_success_and_failure() -> None:
     ok = _login()
     assert ok.status_code == 200
     assert "access_token" in ok.json()
 
-    bad = _login(password="wrong-pass")
+    bad = _login(phone=f"bad-{uuid.uuid4().hex[:8]}", password="wrong-pass")
     assert bad.status_code == 401
 
 
@@ -52,7 +64,9 @@ def test_auth_rate_limit() -> None:
 
 
 def test_report_upload_size_limit() -> None:
-    tasks = httpx.get(f"{BASE_URL}/api/tasks", timeout=20.0)
+    dispatcher_headers = _auth_headers()
+    report_headers = _auth_headers(phone="+38000000002", password="builder")
+    tasks = httpx.get(f"{BASE_URL}/api/tasks", headers=dispatcher_headers, timeout=20.0)
     assert tasks.status_code == 200
     task_id = tasks.json()[0]["id"]
 
@@ -63,5 +77,27 @@ def test_report_upload_size_limit() -> None:
         "photo_data": payload,
         "comment": "oversize test",
     }
-    resp = httpx.post(f"{BASE_URL}/api/tasks/{task_id}/reports", json=body, timeout=20.0)
+    resp = httpx.post(f"{BASE_URL}/api/tasks/{task_id}/reports", json=body, headers=report_headers, timeout=20.0)
     assert resp.status_code in (400, 413)
+
+
+def test_assign_task_returns_payload() -> None:
+    headers = _auth_headers()
+    tasks = httpx.get(f"{BASE_URL}/api/tasks", headers=headers, timeout=20.0)
+    brigades = httpx.get(f"{BASE_URL}/api/brigades", headers=headers, timeout=20.0)
+    assert tasks.status_code == 200
+    assert brigades.status_code == 200
+
+    task_id = tasks.json()[0]["id"]
+    brigade_id = brigades.json()[0]["id"]
+    response = httpx.post(
+        f"{BASE_URL}/api/tasks/{task_id}/assign",
+        json={"brigade_id": brigade_id},
+        headers=headers,
+        timeout=20.0,
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["id"] == task_id
+    assert payload["status"] == "assigned"

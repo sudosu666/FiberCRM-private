@@ -18,6 +18,10 @@
   - `chat.message`
   - `progress.update`
   - `photo.report`
+- Во время повторного аудита устранены два дефекта стадии:
+  - `POST /api/tasks/{task_id}/assign` больше не падает на возврате payload после назначения
+  - backend Socket.IO теперь принимает фактические event names, которые использует frontend (`chat.message`, `progress.update`)
+- Stage 5 теперь опирается на role-guarded API: доступ к dispatcher endpoints требует JWT пользователя с ролью `Dispatcher`.
 - Обновлены файлы:
   - `backend/frontend/templates/dispatcher.html`
   - `backend/frontend/static/dispatcher.css`

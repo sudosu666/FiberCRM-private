@@ -34,6 +34,12 @@ body {
   top: 0;
 }
 
+.topbar-side {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
 .kicker {
   margin: 0;
   color: var(--muted);
@@ -62,6 +68,35 @@ h1 {
 .role-nav a:hover {
   color: var(--text);
   border-color: var(--accent);
+}
+
+.auth-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.auth-box a {
+  color: var(--text);
+  text-decoration: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+}
+
+.auth-name,
+.auth-role {
+  margin: 0;
+  text-align: right;
+}
+
+.auth-name {
+  font-size: 12px;
+}
+
+.auth-role {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .layout {
@@ -125,6 +160,13 @@ button {
   padding: 10px;
   background: rgba(7, 20, 34, 0.7);
 }
+.item.critical {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 1px rgba(255, 93, 122, 0.35);
+}
+.item.on_hold {
+  background: rgba(68, 42, 12, 0.45);
+}
 .item[draggable="true"] { cursor: grab; }
 .item.dragging { opacity: 0.5; border-color: var(--accent); }
 .item.drop-target { border-color: var(--accent); background: rgba(9, 46, 74, 0.6); }
@@ -157,6 +199,7 @@ button {
 .tag.pending { color: var(--warn); }
 .tag.assigned { color: var(--accent); }
 .tag.in_progress { color: var(--ok); }
+.tag.on_hold { color: var(--warn); }
 .tag.completed { color: var(--ok); }
 .tag.canceled { color: var(--danger); }
 
@@ -176,6 +219,19 @@ select {
   flex: 1;
 }
 
+input {
+  background: #0b1c2e;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  min-width: 0;
+}
+
+select[multiple] {
+  min-height: 120px;
+}
+
 .placeholder {
   color: var(--muted);
   margin: 0;
@@ -193,7 +249,36 @@ select {
   overflow: auto;
 }
 
+.card-wide {
+  grid-column: 1 / -1;
+  min-height: auto;
+}
+
+.role-editor {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+  align-items: center;
+}
+
+.roles-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.role-pick {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 @media (max-width: 1100px) {
+  .topbar,
+  .topbar-side {
+    flex-direction: column;
+    align-items: flex-start;
+  }
   .layout {
     grid-template-columns: 1fr;
   }
