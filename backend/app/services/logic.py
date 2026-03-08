@@ -143,7 +143,8 @@ async def load_task_queue(session: AsyncSession) -> List[TaskQueueItem]:
 
 async def load_brigade_board(session: AsyncSession) -> List[BrigadeBoardItem]:
     stmt = select(Brigade).options(
-        selectinload(Brigade.tasks).selectinload(Task.building)
+        selectinload(Brigade.tasks).selectinload(Task.building),
+        selectinload(Brigade.members),
     )
     result = await session.scalars(stmt)
     brigades = result.all()
@@ -183,7 +184,10 @@ async def load_stock_items(session: AsyncSession) -> List[StockItemRead]:
 
 
 async def load_warehouse_requests(session: AsyncSession) -> List[WarehouseRequestRead]:
-    stmt = select(WarehouseRequest).options(selectinload(WarehouseRequest.items).selectinload(WarehouseRequestItem.stock_item))
+    stmt = select(WarehouseRequest).options(
+        selectinload(WarehouseRequest.building),
+        selectinload(WarehouseRequest.items).selectinload(WarehouseRequestItem.stock_item),
+    )
     result = await session.scalars(stmt)
     requests = result.all()
     records = []

@@ -2,6 +2,7 @@ import socketio
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
@@ -43,8 +44,8 @@ async def on_startup() -> None:
             await seed_demo_data(session)
 
 @app.get("/")
-async def health_check() -> dict[str, str]:
-    return {"status": "up", "backend": "fastapi"}
+async def root_redirect() -> RedirectResponse:
+    return RedirectResponse(url="/dispatcher", status_code=307)
 
 @app.get("/health/live")
 async def health_live() -> dict[str, str]:

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FiberOps Warehouse</title>
+  <link rel="stylesheet" href="/static/warehouse.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="kicker">FiberOps CRM</p>
+      <h1>Панель складу</h1>
+    </div>
+    <nav class="role-nav">
+      <a href="/dispatcher">Диспетчер</a>
+      <a href="/field">Робочі</a>
+      <a class="active" href="/warehouse">Склад</a>
+    </nav>
+  </header>
+
+  <main class="layout">
+    <section class="card">
+      <div class="card-head">
+        <h2>Залишки матеріалів</h2>
+        <button id="refreshStock" type="button">Оновити</button>
+      </div>
+      <div id="stockList" class="stack">
+        <p class="placeholder">Завантаження складу...</p>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>Запити бригад</h2>
+        <button id="refreshRequests" type="button">Оновити</button>
+      </div>
+      <div id="requestList" class="stack">
+        <p class="placeholder">Завантаження запитів...</p>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/warehouse.js"></script>
+</body>
+</html>

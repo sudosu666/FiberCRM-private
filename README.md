@@ -10,6 +10,12 @@
 4. Health checks:
 - `http://localhost:8000/health/live`
 - `http://localhost:8000/health/ready`
+5. UI pages:
+- `http://localhost:8000/dispatcher`
+- `http://localhost:8000/field`
+- `http://localhost:8000/workers`
+- `http://localhost:8000/warehouse`
+- `http://localhost:8000/Dashboards/` (alias -> `/dispatcher`)
 
 ## Development (Local Uvicorn)
 1. Copy `backend/.env.example` to `backend/.env`.
@@ -20,6 +26,8 @@
 4. Verify:
 - `http://localhost:8000/health/live`
 - `http://localhost:8000/health/ready`
+- `http://localhost:8000/dispatcher`
+- `http://localhost:8000/warehouse`
 
 ## Production run
 1. Fill real secrets in `.env.prod`.
