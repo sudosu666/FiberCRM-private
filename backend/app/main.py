@@ -16,7 +16,7 @@ from .services.realtime import sio
 from .models import UserRole
 
 init_sentry()
-app = FastAPI(title=settings.app_name)
+app = FastAPI(title=settings.app_name, docs_url="/api/docs", redoc_url=None)
 allow_all_origins = settings.cors_origins == ["*"]
 app.add_middleware(
     CORSMiddleware,

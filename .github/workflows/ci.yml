@@ -87,6 +87,40 @@ jobs:
         if: always()
         run: docker compose down -v
 
+  https-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start stack with nginx
+        run: docker compose up -d --build db redis backend nginx
+        env:
+          APP_ENV: dev
+          JWT_SECRET: ci-local-secret
+          CORS_ALLOW_ORIGINS: https://localhost:8443,http://localhost:8000
+          POSTGRES_USER: fiber
+          POSTGRES_PASSWORD: fiberpass
+          POSTGRES_DB: fibercrm
+          BACKEND_DATABASE_URL: postgresql+asyncpg://fiber:fiberpass@db:5432/fibercrm
+          REDIS_URL: redis://redis:6379/0
+      - name: Wait for HTTPS readiness
+        run: |
+          for i in $(seq 1 60); do
+            if curl -kfsS https://localhost:8443/health/live >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "HTTPS endpoint did not become ready in time"
+          exit 1
+      - name: HTTPS smoke check
+        run: curl -kfsS https://localhost:8443/health/ready
+      - name: Dump compose logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Teardown
+        if: always()
+        run: docker compose down -v
+
   e2e-full:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest

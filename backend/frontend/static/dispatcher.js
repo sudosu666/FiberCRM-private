@@ -4,6 +4,7 @@ const state = {
   tasks: [],
   brigades: [],
   timeline: [],
+  events: [],
 };
 
 const icons = {
@@ -33,6 +34,20 @@ async function readJson(url, options) {
   return response.json();
 }
 
+function pushEvent(label) {
+  state.events.unshift({ label, ts: new Date().toISOString() });
+  state.events = state.events.slice(0, 30);
+  renderEvents();
+}
+
+async function assignTask(taskId, brigadeId) {
+  await readJson(`/api/tasks/${taskId}/assign`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ brigade_id: brigadeId }),
+  });
+}
+
 function renderTasks() {
   const mount = el('tasksList');
   if (!state.tasks.length) {
@@ -42,7 +57,7 @@ function renderTasks() {
   mount.innerHTML = state.tasks.map((task) => {
     const hasBrigade = Boolean(task.brigade_name);
     return `
-      <article class="item">
+      <article class="item" draggable="true" data-task-id="${task.id}">
         <div class="row">
           <p class="title">${icons[task.type] || '•'} ${task.building_address || 'Без адреси'}</p>
           <span class="tag ${task.status}">${statusLabel[task.status] || task.status}</span>
@@ -68,17 +83,22 @@ function renderTasks() {
       }
       btn.disabled = true;
       try {
-        await readJson(`/api/tasks/${taskId}/assign`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ brigade_id: pick.value }),
-        });
+        await assignTask(taskId, pick.value);
+        pushEvent(`Призначення: task ${taskId.slice(0, 8)} -> brigade ${pick.value.slice(0, 8)}`);
         await loadAll();
       } catch (err) {
         console.error(err);
         btn.disabled = false;
       }
     });
+  });
+
+  mount.querySelectorAll('.item[draggable="true"]').forEach((card) => {
+    card.addEventListener('dragstart', (event) => {
+      card.classList.add('dragging');
+      event.dataTransfer.setData('text/task-id', card.getAttribute('data-task-id'));
+    });
+    card.addEventListener('dragend', () => card.classList.remove('dragging'));
   });
 }
 
@@ -90,15 +110,40 @@ function renderBrigades() {
     return;
   }
   mount.innerHTML = state.brigades.map((brigade) => `
-    <article class="item">
+    <article class="item" data-brigade-id="${brigade.id}">
       <div class="row">
         <p class="title">${icons[brigade.type] || '•'} ${brigade.name}</p>
         <span class="tag ${brigade.is_active ? 'in_progress' : 'canceled'}">${brigade.status_label}</span>
       </div>
       <p class="sub">Учасники: ${brigade.members}</p>
       <p class="sub">Задачі: ${brigade.tasks.length}</p>
+      <p class="sub">Drag & Drop: перетягни задачу сюди</p>
     </article>
   `).join('');
+
+  mount.querySelectorAll('.item[data-brigade-id]').forEach((card) => {
+    card.addEventListener('dragover', (event) => {
+      event.preventDefault();
+      card.classList.add('drop-target');
+    });
+    card.addEventListener('dragleave', () => card.classList.remove('drop-target'));
+    card.addEventListener('drop', async (event) => {
+      event.preventDefault();
+      card.classList.remove('drop-target');
+      const taskId = event.dataTransfer.getData('text/task-id');
+      const brigadeId = card.getAttribute('data-brigade-id');
+      if (!taskId || !brigadeId) {
+        return;
+      }
+      try {
+        await assignTask(taskId, brigadeId);
+        pushEvent(`DnD: task ${taskId.slice(0, 8)} -> brigade ${brigadeId.slice(0, 8)}`);
+        await loadAll();
+      } catch (err) {
+        console.error(err);
+      }
+    });
+  });
 }
 
 function renderTimeline() {
@@ -121,6 +166,20 @@ function renderTimeline() {
       </article>
     `;
   }).join('');
+}
+
+function renderEvents() {
+  const mount = el('eventFeed');
+  if (!state.events.length) {
+    mount.innerHTML = '<p class="placeholder">Очікування подій...</p>';
+    return;
+  }
+  mount.innerHTML = state.events.map((entry) => `
+    <article class="item">
+      <p class="title">${entry.label}</p>
+      <p class="sub">${new Date(entry.ts).toLocaleString()}</p>
+    </article>
+  `).join('');
 }
 
 async function loadAll() {
@@ -164,11 +223,28 @@ function initSocket() {
   socket.on('task_queue.update', (payload) => {
     state.tasks = Array.isArray(payload) ? payload : state.tasks;
     renderTasks();
+    pushEvent('Socket: task_queue.update');
   });
 
   socket.on('brigade_board.update', (payload) => {
     state.brigades = Array.isArray(payload) ? payload : state.brigades;
     renderBrigades();
+    pushEvent('Socket: brigade_board.update');
+  });
+
+  socket.on('chat.message', (payload) => {
+    const msg = payload?.message || 'new chat message';
+    pushEvent(`Chat: ${msg}`);
+  });
+
+  socket.on('progress.update', (payload) => {
+    const step = payload?.step || 'step update';
+    pushEvent(`Progress: ${step}`);
+  });
+
+  socket.on('photo.report', (payload) => {
+    const who = payload?.brigade_name || 'бригада';
+    pushEvent(`Photo: ${who}`);
   });
 }
 

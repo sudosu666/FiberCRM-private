@@ -1,12 +1,7 @@
 const state = {
   tasks: [],
   currentTaskId: null,
-  steps: [
-    { title: 'Прийом завдання', desc: 'Диспетчер підтвердив і призначив бригаду.', eta: '2 хв', status: 'pending' },
-    { title: 'Виїзд на об'єкт', desc: 'Бригада прибуває, перевіряє доступ.', eta: '10 хв', status: 'pending' },
-    { title: 'Прокладка кабелю', desc: 'Розмітка, прокладка та тестування кабелю.', eta: '30 хв', status: 'pending' },
-    { title: 'Фото-звіт і чат', desc: 'Результати фіксуються, дані передаються назад.', eta: '5 хв', status: 'pending' },
-  ],
+  steps: [],
   photos: [],
   chatMessages: [],
   brigadeId: 'BRG-03',
@@ -31,6 +26,62 @@ let socket;
 let socketConnected = false;
 const PHOTO_TARGET_BYTES = 200 * 1024;
 const PHOTO_FALLBACK_QUALITY = 0.25;
+const DB_NAME = 'fiberops-offline';
+const DB_STORE = 'queue';
+
+function openQueueDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = () => {
+      req.result.createObjectStore(DB_STORE, { keyPath: 'id', autoIncrement: true });
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function enqueueAction(action) {
+  const db = await openQueueDb();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(DB_STORE, 'readwrite');
+    tx.objectStore(DB_STORE).add({ ...action, queuedAt: Date.now() });
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
+
+async function flushQueue() {
+  if (!navigator.onLine) return;
+  const db = await openQueueDb();
+  const rows = await new Promise((resolve, reject) => {
+    const tx = db.transaction(DB_STORE, 'readonly');
+    const req = tx.objectStore(DB_STORE).getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+  for (const row of rows) {
+    try {
+      if (row.kind === 'step') {
+        await fetch(`/api/tasks/${row.taskId}/steps/${row.stepId}/complete`, { method: 'PATCH' });
+      } else if (row.kind === 'photo') {
+        await persistPhotoReportInternal(row.filename, row.dataUrl, row.comment, true);
+      } else if (row.kind === 'chat' && socketConnected) {
+        socket?.emit('chat.message', row.payload);
+      }
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(DB_STORE, 'readwrite');
+        tx.objectStore(DB_STORE).delete(row.id);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    } catch (error) {
+      console.warn('flush queue failed', error);
+      break;
+    }
+  }
+  db.close();
+}
 
 function dataUrlSizeBytes(dataUrl) {
   const payload = dataUrl.split(',')[1] ?? '';
@@ -93,10 +144,41 @@ async function loadTasks() {
     state.tasks = payload;
     state.currentTaskId = payload[0]?.id ?? null;
     renderTasks();
+    await loadTaskSteps();
     syncStatus.textContent = `Синхронізовано: ${new Date().toLocaleTimeString()}`;
   } catch (error) {
     taskList.innerHTML = '<div class="placeholder">Не вдалося отримати задачі. Спробуйте ще раз.</div>';
     console.warn('Fetch tasks failed', error);
+  }
+}
+
+async function loadTaskSteps() {
+  if (!state.currentTaskId) {
+    state.steps = [];
+    renderSteps();
+    return;
+  }
+  try {
+    const response = await fetch(`/api/tasks/${state.currentTaskId}/steps`);
+    if (!response.ok) throw new Error('steps api error');
+    const steps = await response.json();
+    state.steps = steps.map((step) => ({
+      id: step.id,
+      title: step.title,
+      desc: step.hint || 'Крок без опису',
+      eta: step.is_done ? 'done' : 'pending',
+      status: step.is_done ? 'completed' : 'pending',
+    }));
+    renderSteps();
+  } catch (error) {
+    console.warn('load steps failed', error);
+    if (!state.steps.length) {
+      state.steps = [
+        { title: 'Прийом завдання', desc: 'Диспетчер підтвердив і призначив бригаду.', eta: '2 хв', status: 'pending' },
+        { title: 'Виїзд на об\'єкт', desc: 'Бригада прибуває, перевіряє доступ.', eta: '10 хв', status: 'pending' },
+      ];
+      renderSteps();
+    }
   }
 }
 
@@ -123,7 +205,7 @@ function renderTasks() {
     card.addEventListener('click', () => {
       state.currentTaskId = task.id;
       renderTasks();
-      renderSteps();
+      loadTaskSteps();
     });
     taskList.appendChild(card);
   });
@@ -154,6 +236,13 @@ function advanceStep() {
   if (nextStep === -1) return;
   state.steps[nextStep].status = 'completed';
   renderSteps();
+  const stepId = state.steps[nextStep].id;
+  if (stepId && state.currentTaskId) {
+    fetch(`/api/tasks/${state.currentTaskId}/steps/${stepId}/complete`, { method: 'PATCH' })
+      .catch(async () => {
+        await enqueueAction({ kind: 'step', taskId: state.currentTaskId, stepId });
+      });
+  }
   socket?.emit('progress.update', {
     brigade_id: state.brigadeId,
     brigade_name: state.brigadeName,
@@ -199,6 +288,10 @@ function handlePhotoUpload(event) {
 }
 
 async function persistPhotoReport(filename, dataUrl, comment) {
+  return persistPhotoReportInternal(filename, dataUrl, comment, false);
+}
+
+async function persistPhotoReportInternal(filename, dataUrl, comment, fromQueue = false) {
   if (!state.currentTaskId) return;
   try {
     await fetch(`/api/tasks/${state.currentTaskId}/reports`, {
@@ -214,6 +307,9 @@ async function persistPhotoReport(filename, dataUrl, comment) {
     });
   } catch (error) {
     console.warn('failed to persist photo report', error);
+    if (!fromQueue) {
+      await enqueueAction({ kind: 'photo', taskId: state.currentTaskId, filename, dataUrl, comment });
+    }
   }
 }
 
@@ -228,6 +324,7 @@ function connectChat() {
     chatStatus.textContent = 'online';
     chatStatus.style.background = 'rgba(61, 220, 151, 0.2)';
     chatStatus.style.borderColor = 'rgba(61, 220, 151, 0.4)';
+    flushQueue().catch((error) => console.warn('queue flush failed', error));
   });
 
   socket.on('disconnect', () => {
@@ -271,6 +368,9 @@ function setupChatForm() {
       timestamp: new Date().toISOString(),
     };
     socket?.emit('chat.message', payload);
+    if (!socketConnected) {
+      enqueueAction({ kind: 'chat', payload }).catch((error) => console.warn('queue chat failed', error));
+    }
     appendChatMessage(payload, true);
     chatInput.value = '';
   });
@@ -313,6 +413,8 @@ window.addEventListener('DOMContentLoaded', () => {
   renderPhotos();
   connectChat();
   updateSignalStrength();
+  flushQueue().catch((error) => console.warn('initial queue flush failed', error));
   window.addEventListener('online', updateSignalStrength);
+  window.addEventListener('online', () => flushQueue().catch((error) => console.warn('online queue flush failed', error)));
   window.addEventListener('offline', updateSignalStrength);
 });

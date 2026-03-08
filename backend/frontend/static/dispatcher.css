@@ -125,6 +125,9 @@ button {
   padding: 10px;
   background: rgba(7, 20, 34, 0.7);
 }
+.item[draggable="true"] { cursor: grab; }
+.item.dragging { opacity: 0.5; border-color: var(--accent); }
+.item.drop-target { border-color: var(--accent); background: rgba(9, 46, 74, 0.6); }
 
 .row {
   display: flex;
@@ -176,6 +179,18 @@ select {
 .placeholder {
   color: var(--muted);
   margin: 0;
+}
+
+.events-head {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.events {
+  margin-top: 6px;
+  max-height: 220px;
+  overflow: auto;
 }
 
 @media (max-width: 1100px) {

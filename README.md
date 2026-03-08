@@ -12,6 +12,7 @@
 - `http://localhost:8000/health/ready`
 5. UI pages:
 - `http://localhost:8000/dispatcher`
+- `http://localhost:8000/designer`
 - `http://localhost:8000/field`
 - `http://localhost:8000/workers`
 - `http://localhost:8000/warehouse`

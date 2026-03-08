@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
 from typing import List, Optional
 from uuid import UUID
@@ -41,6 +41,11 @@ class Token(BaseModel):
     token_type: str = 'bearer'
 
 
+class LoginRequest(BaseModel):
+    phone: str
+    password: str
+
+
 class TokenData(BaseModel):
     phone: Optional[str] = None
     role: Optional[UserRole] = None
@@ -78,6 +83,23 @@ class TaskRead(TaskBase):
     status: TaskStatus
     created_at: datetime
     completed_at: Optional[datetime]
+
+
+class TaskStepRead(BaseModel):
+    id: UUID
+    task_id: UUID
+    step_order: int
+    title: str
+    hint: Optional[str]
+    is_done: bool
+    done_at: Optional[datetime]
+
+
+class TaskStepCompleteRead(BaseModel):
+    task_id: UUID
+    step_id: UUID
+    is_done: bool
+    done_at: Optional[datetime]
 
 
 class TaskReportCreate(BaseModel):
@@ -144,6 +166,37 @@ class TenderOverview(BaseModel):
 
     class Config:
         orm_mode = True
+
+
+class TenderCreate(BaseModel):
+    name: str
+    customer: str = "Vodafone Ukraine"
+    city: Optional[str] = None
+    deadline: Optional[date] = None
+
+
+class TenderStatusUpdate(BaseModel):
+    status: TenderStatus
+
+
+class TenderDashboardRead(BaseModel):
+    tender_id: UUID
+    progress_pct: float
+    building_count: int
+    task_count: int
+    completed_tasks: int
+    in_progress_tasks: int
+    pending_tasks: int
+    active_brigades: int
+    planned_cable_meters: float
+
+
+class TenderCompleteRead(BaseModel):
+    tender_id: UUID
+    status: TenderStatus
+    completed_at: datetime
+    handover_summary: str
+    blockers: List[str] = Field(default_factory=list)
 
 
 class BuildingMetrics(BaseModel):
@@ -254,3 +307,71 @@ class BuildingNetworkRead(BaseModel):
     id: UUID
     address: str
     metrics: BuildingMetrics
+
+
+class BuildingCalculateRead(BaseModel):
+    building_id: UUID
+    metrics: BuildingMetrics
+    patches_needed: int
+    muffles_needed: int
+    potential_clients: int
+
+
+class MuffleCapacityFiberRead(BaseModel):
+    fiber_num: int
+    total_ports: int = 32
+    used_ports: int
+    clients: int
+    available_ports: int
+    load_pct: float
+
+
+class MuffleCapacityRead(BaseModel):
+    muffle_id: UUID
+    warning: Optional[str]
+    fibers: List[MuffleCapacityFiberRead]
+
+
+class InfrastructurePortRead(BaseModel):
+    panel_id: UUID
+    port_id: UUID
+    port_number: int
+    status: str
+
+
+class InfrastructurePanelRead(BaseModel):
+    panel_id: UUID
+    entrance_num: int
+    floor_num: int
+    label: Optional[str]
+    ports: List[InfrastructurePortRead]
+
+
+class InfrastructureBuildingRead(BaseModel):
+    building_id: UUID
+    address: str
+    city: Optional[str]
+    infrastructure_status: str
+    panels: List[InfrastructurePanelRead]
+
+
+class NetworkPlanCreate(BaseModel):
+    tender_id: Optional[UUID] = None
+    address: str
+    city: Optional[str] = None
+    entrances_count: int = Field(ge=1, le=40)
+    floors_count: int = Field(ge=1, le=80)
+    flats_per_floor: int = Field(ge=1, le=40)
+    floor_height_m: float = Field(default=2.8, ge=2.0, le=6.0)
+    panel_every_n_floors: int = Field(default=5, ge=1, le=20)
+    distance_from_muffle_m: float = Field(default=0.0, ge=0.0, le=10000.0)
+    cable_reserve_pct: int = Field(default=15, ge=0, le=60)
+    muffle_id: Optional[UUID] = None
+    selected_fibers: List[int] = Field(default_factory=list)
+
+
+class NetworkPlanRead(BaseModel):
+    building_id: UUID
+    task_ids: List[UUID]
+    warehouse_request_id: Optional[UUID]
+    reserved_fibers: List[int]

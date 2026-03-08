@@ -335,9 +335,11 @@
 <div class="tooltip" id="tip"></div>
 
 <script>
-const STOCK={cable16:{stock:2400},cable8:{stock:340},cable24:{stock:800},cable48:{stock:0},panel:{stock:32},muff:{stock:8},patch:{stock:120}};
+const API_BASE='/api';
+let TENDERS=[];
+let STOCK={cable16:{stock:2400},cable8:{stock:340},cable24:{stock:800},cable48:{stock:0},panel:{stock:32},muff:{stock:8},patch:{stock:120}};
 
-const MUFFS=[
+let MUFFS=[
   {id:'m1',name:'Муфта M-01 · Польова 1',addr:'Колодязь №4, 80м від будинку',fibers:16,
    used:[1,2,3,4,5,6,7,8,9,10],clients:[0,0,0,0,0,0,0,0,0,0,28,24,0,0,0,0]},
   {id:'m2',name:'Муфта M-02 · Квіткова 12',addr:'Техн. підвал, 45м від будинку',fibers:16,
@@ -351,6 +353,11 @@ let selMuff=null,selFibers=[],C=null;
 function g(id){return document.getElementById(id)}
 function v(id){return parseFloat(g(id).value)||0}
 function vi(id){return parseInt(g(id).value)||0}
+async function j(path,opts){
+  const r=await fetch(`${API_BASE}${path}`,opts);
+  if(!r.ok){throw new Error(`${r.status} ${path}`);}
+  return r.json();
+}
 
 function calcAll(){
   const en=vi('entr'),fl=vi('floors'),ap=vi('apts'),fh=v('flH'),pe=vi('pev'),
@@ -568,14 +575,76 @@ function resetForm(){
 
 function savePlan(){
   if(!C)return;
-  const addr=g('addr').value||'Новий будинок';
-  const mn=selMuff?MUFFS.find(m=>m.id===selMuff)?.name:'не вибрано';
-  alert(`✓ План збережено!\n\n${addr}\n${C.en} під'їздів · ${C.fl} поверхів · ${C.totApts} квартир\n\nКабель: ${C.total}м · Щитки: ${C.totPan} шт.\nМуфта: ${mn}\n${selFibers.length?`Волокна: ${selFibers.join(', ')}`:'Волокна: не вибрано'}`);
+  const addr=(g('addr').value||'').trim();
+  if(!addr){alert('Вкажи адресу');return;}
+  const payload={
+    tender_id:TENDERS[0]?.id||null,
+    address:addr,
+    city:(g('city').value||null),
+    entrances_count:C.en,
+    floors_count:C.fl,
+    flats_per_floor:C.ap,
+    floor_height_m:C.fh,
+    panel_every_n_floors:C.pe,
+    distance_from_muffle_m:v('dist'),
+    cable_reserve_pct:v('extra'),
+    muffle_id:selMuff||null,
+    selected_fibers:selFibers.slice(),
+  };
+  j('/network/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+    .then(res=>{
+      alert(`✓ План збережено!\n\nBuilding: ${res.building_id}\nTasks: ${res.task_ids.length}\nWarehouse request: ${res.warehouse_request_id||'none'}`);
+    })
+    .catch(err=>alert(`Помилка збереження: ${err.message}`));
+}
+
+function mapRemoteStock(items){
+  const next={cable16:{stock:0},cable8:{stock:0},cable24:{stock:0},cable48:{stock:0},panel:{stock:0},muff:{stock:0},patch:{stock:0}};
+  for(const item of items){
+    const n=(item.name||'').toLowerCase();
+    if(n.includes('кабель')&&n.includes('16'))next.cable16.stock=item.quantity||0;
+    else if(n.includes('кабель')&&n.includes('8'))next.cable8.stock=item.quantity||0;
+    else if(n.includes('кабель')&&n.includes('24'))next.cable24.stock=item.quantity||0;
+    else if(n.includes('кабель')&&n.includes('48'))next.cable48.stock=item.quantity||0;
+    else if(n.includes('щит'))next.panel.stock=item.quantity||0;
+    else if(n.includes('муфт'))next.muff.stock=item.quantity||0;
+    else if(n.includes('патч'))next.patch.stock=item.quantity||0;
+  }
+  STOCK=next;
+}
+
+function mapRemoteMuffles(rows){
+  MUFFS=(rows||[]).map(row=>{
+    const fibers=row.fibers||[];
+    const used=fibers.filter(f=>f.status!=='free').map(f=>f.fiber_number);
+    const clients=fibers.map(f=>f.status==='busy'?32:(f.status==='reserved'?16:0));
+    return{
+      id:row.id,
+      name:row.name||'Муфта',
+      addr:row.address_note||'Без адреси',
+      fibers:fibers.length||row.capacity||16,
+      used,
+      clients,
+    };
+  });
+}
+
+async function loadRemoteData(){
+  try{
+    const [topology,stock,tenders]=await Promise.all([j('/network/topology'),j('/stock'),j('/tenders')]);
+    TENDERS=tenders||[];
+    mapRemoteStock(stock||[]);
+    mapRemoteMuffles(topology||[]);
+  }catch(err){
+    console.warn('remote data fallback',err);
+  }
 }
 
 // Init
-renderFiberSources();
-update();
+loadRemoteData().finally(()=>{
+  renderFiberSources();
+  update();
+});
 </script>
 </body>
 </html>

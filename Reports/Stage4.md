@@ -1,17 +1,28 @@
-# Stage 4 Report — Designer UI
+# Stage 4 Report — Designer UI (Aligned to Dashboards Prototype)
 
 ## Scope
-- Reworked the standalone `fiber-designer.html` into a designer UI that now loads live topology, stock, and task metrics from the Stage 2 APIs while keeping the Canvas/SVG-style building visualizer, fiber/panel selectors, and material calculator.
-- Pulled the massive inline styles into `Web UI/assets/designer.css` and replaced the inline script with `Web UI/assets/designer.js` so the page stays maintainable and can reuse shared helper logic.
-- Added CORS support in the backend so the file-based UI can safely fetch from `https://localhost:8443/api` without Same-Origin issues.
+- Реализовать дизайнерский модуль в том же UX-виде, что и `/Dashboards/fiber-designer.html`, без нового дизайна.
+- Подключить существующий экран к backend API и сохранить план так, чтобы он сразу попадал рабочим через задачи.
 
 ## Completed
-- `Web UI/assets/designer.css` now holds the full UI skin for the designer experience, and `fiber-designer.html` references it instead of houses the styles inline.
-- `Web UI/assets/designer.js` fetches `/api/network/topology`, `/api/stock`, and `/api/tasks`, stores fallbacks, and drives the building visualization, fiber selection, stock warnings, KPI cards, and tooltip interactions previously hard-coded.
-- Backend got `CORSMiddleware` in `backend/app/main.py` so the designer UI and other static views can call the new `/api` endpoints without CORS errors.
+- `/designer` теперь отдает dashboard-версию проектувальника (через `Dashboards/fiber-designer.html`), а не отдельный новый макет:
+  - `backend/app/routers/ui_router.py`
+- В `Dashboards/fiber-designer.html` добавлена backend-интеграция:
+  - загрузка `GET /api/network/topology`, `GET /api/stock`, `GET /api/tenders`
+  - `savePlan()` теперь вызывает `POST /api/network/plan`
+  - после сохранения возвращается `building_id`, `task_ids`, `warehouse_request_id`
+- Для контейнерного fallback тот же файл продублирован в:
+  - `backend/frontend/templates/designer.html`
+  чтобы вид и логика не зависели от наличия папки `Dashboards` внутри контейнера.
 
-## Tests
-- `python -m compileall backend/app`
+## Acceptance (Smoke)
+- `GET /designer` -> `200`
+- В отданной странице присутствуют backend-hook'и `API_BASE='/api'` и `/network/plan` (проверено через TestClient).
+- `POST /api/network/plan` -> `201` (создание building + задач + warehouse request).
+
+## Outcome for field teams
+- Проектувальник сохраняет план в привычном интерфейсе `/Dashboards`.
+- После `save plan` задачи автоматически создаются в backend и становятся доступными рабочим через их поток задач.
 
 ## Next
-- Stage 5 (Real-time Ops) will layer WebSocket status updates + chat on top of the dispatcher/brigade workflows and turn the timeline/brigade board into a drag-and-drop canvas.
+- Перейти к следующей стадии из `stages.xlsx` (Stage 5: Real-time Ops) и проверить соответствие текущей реализации критериям stage.

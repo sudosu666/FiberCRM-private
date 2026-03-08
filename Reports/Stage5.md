@@ -1,18 +1,32 @@
-# Stage 5 Report — Real-time Ops
+# Stage 5 Report — Real-time Ops (Dispatcher)
 
 ## Scope
-- Wire the dispatcher UI to the Stage 2 APIs and the new Socket.IO layer so task/brigade state is live and interactive.
-- Keep the backend broadcasting updated queues whenever `/api/tasks/{id}/assign` runs, and allow the frontend to push control actions back through the same HTTP surface.
+- Довести диспетчерскую панель до требований стадии: live-обновления + назначение задач + drag-and-drop + event/chat feed.
 
 ## Completed
-- `Web UI/assets/dispatch.js` now loads `/api/tasks`, `/api/brigades`, and `/api/timeline`, renders them with the existing layout, and refreshes automatically every 30 seconds.
-- The dispatcher deck opens a Socket.IO connection (auth’ing as `Dispatcher`), listens for `task_queue.update` and `brigade_board.update`, and merges those payloads so the UI reflects assignments made by any client instantly.
-- Assignment controls (`assignTo`, `quickAssign`, drag/drop buttons) now call `/api/tasks/{task_id}/assign`. The backend recalculates building/tender state, broadcasts the refreshed queue/brigade data, and the frontend re-renders accordingly.
-- Socket.IO is loaded in `fiber-dispatcher.html` and the dispatcher view gracefully falls back to placeholder data when the backend is unavailable while still keeping all existing widgets intact.
-- `Reports/Stage5.md` now documents the real-time flow and notes the Reactivity improvements.
+- Dispatcher UI использует live backend API:
+  - `GET /api/tasks`
+  - `GET /api/brigades`
+  - `GET /api/timeline`
+- Реализованы назначения задач:
+  - кнопкой из карточки задачи
+  - drag-and-drop: перетаскивание задачи на карточку бригады
+  - endpoint: `POST /api/tasks/{task_id}/assign`
+- Реализована realtime-лента в UI:
+  - `task_queue.update`
+  - `brigade_board.update`
+  - `chat.message`
+  - `progress.update`
+  - `photo.report`
+- Обновлены файлы:
+  - `backend/frontend/templates/dispatcher.html`
+  - `backend/frontend/static/dispatcher.css`
+  - `backend/frontend/static/dispatcher.js`
 
-## Tests
-- `python -m compileall backend/app`
+## Acceptance (Smoke)
+- `/dispatcher` отдает рабочую панель.
+- API назначения задач продолжает работать.
+- При socket-событиях feed обновляется в реальном времени.
 
 ## Next
-- Continue Stage 6 (Field Ops) by connecting the PWA/brigae mobile UI to the same APIs and rolling in offline sync/chat flows.
+- Stage 6 (Field Ops): сверка mobile-потока с актуальными endpoint’ами и offline-сценарием.

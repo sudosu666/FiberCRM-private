@@ -16,12 +16,26 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   backend:
     build:
       context: .
       dockerfile: backend/Dockerfile
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     ports:
       - "8000:8000"
@@ -39,6 +53,7 @@ services:
       RATE_LIMIT_REPORT_PER_MINUTE: ${RATE_LIMIT_REPORT_PER_MINUTE:-20}
       RATE_LIMIT_REALTIME_PER_MINUTE: ${RATE_LIMIT_REALTIME_PER_MINUTE:-120}
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-2000000}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
     volumes:
       - ./backend/app:/app/app:delegated
       - ./backend/frontend:/app/frontend:delegated
@@ -63,3 +78,4 @@ services:
 
 volumes:
   db_data:
+  redis_data:
