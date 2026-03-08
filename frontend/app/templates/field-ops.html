@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <title>FiberOps Field Mobile</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#020617">
+  <link rel="manifest" href="/static/manifest.json">
+  <link rel="icon" href="/static/icons/app-icon-192.png">
+  <link rel="stylesheet" href="/static/mobile.css">
+</head>
+<body>
+  <div class="pwa-shell">
+    <header class="pwa-header">
+      <div>
+        <p class="kicker">FiberOps · Мобільний майданчик</p>
+        <h1>На маршруті: Сектор Лінія-12</h1>
+        <p class="secondary">Диспетчер натиснув «Підтвердити», тепер бригада виконує роботи.</p>
+      </div>
+      <div class="meta">
+        <span id="authUserName">Гість</span>
+        <span id="authUserRole" class="secondary">Без авторизації</span>
+        <span id="syncStatus">Синхронізація: –</span>
+        <span class="badge" id="signalStrength">🛰️ Good</span>
+        <a id="authLoginLink" href="/login" class="badge">Login</a>
+        <button id="authLogoutButton" type="button" class="ghost" hidden>Logout</button>
+      </div>
+    </header>
+
+    <nav class="phase-nav" aria-label="Field ops phases">
+      <button data-target="taskSection" class="phase-tab is-active">1. Задача</button>
+      <button data-target="stepsSection" class="phase-tab">2. Кроки</button>
+      <button data-target="photoSection" class="phase-tab">3. Фото-звіт</button>
+      <button data-target="chatSection" class="phase-tab">4. Чат</button>
+    </nav>
+
+    <main class="pwa-main">
+      <section class="panel" id="taskSection">
+        <div class="panel-header">
+          <div>
+            <p class="panel-kicker">BRG-03 / Task #19</p>
+            <h2>Задача</h2>
+            <p class="secondary">Прокладка оптичного кабелю, контроль якості, фото-звіт.</p>
+          </div>
+          <button class="ghost" id="refreshTasks">Оновити</button>
+        </div>
+        <div class="panel-header">
+          <div>
+            <p class="secondary" id="taskStatusMeta">Статус: очікування</p>
+          </div>
+          <div class="task-actions">
+            <button class="ghost" id="startTask">Почати</button>
+            <button class="ghost" id="finishTask">Завершити</button>
+          </div>
+        </div>
+        <div class="hold-box">
+          <input type="text" id="holdReason" placeholder="Причина призупинення / критичності">
+          <label><input type="checkbox" id="holdCritical"> Критично</label>
+          <button class="ghost" id="holdTask">Призупинити</button>
+        </div>
+        <div class="hold-box">
+          <input type="text" id="postponeReason" placeholder="Причина переносу на іншу зміну">
+          <button class="ghost" id="postponeTask">Перенос</button>
+        </div>
+        <div class="task-list" id="taskList">
+          <div class="placeholder">Завантаження задач ...</div>
+        </div>
+      </section>
+
+      <section class="panel" id="stepsSection">
+        <div class="panel-header">
+          <div>
+            <p class="panel-kicker">Сценарій: Morning Shift Sync</p>
+            <h2>Кроки</h2>
+          </div>
+          <span class="badge" id="stepBadge">Крок 1 з 4</span>
+        </div>
+        <div class="step-tracker" id="stepTimeline"></div>
+        <button class="btn primary" id="advanceStep">Продовжити</button>
+      </section>
+
+      <section class="panel" id="photoSection">
+        <div class="panel-header">
+          <div>
+            <p class="panel-kicker">Фото-звіт</p>
+            <h2>Зафіксуй результати</h2>
+          </div>
+          <button class="ghost" id="addPhotoButton">Додати фото</button>
+        </div>
+        <input type="file" id="photoInput" accept="image/*" multiple hidden>
+        <p class="secondary">Буде збережено локально та вивантажено як тільки з'явиться зв'язок.</p>
+        <div class="photo-grid" id="photoGrid">
+          <div class="placeholder">Фото ще немає</div>
+        </div>
+      </section>
+
+      <section class="panel" id="chatSection">
+        <div class="panel-header">
+          <div>
+            <p class="panel-kicker">Чат з диспетчером</p>
+            <h2>Команди в реальному часі</h2>
+          </div>
+          <span class="badge" id="chatStatus">offline</span>
+        </div>
+        <div class="chat-window" id="chatWindow" role="log" aria-live="polite">
+          <div class="placeholder">Почніть чат, щойно підключитесь до Socket.IO</div>
+        </div>
+        <form id="chatForm" class="chat-form">
+          <input type="text" id="chatInput" placeholder="Написати повідомлення" autocomplete="off" required>
+          <button type="submit">Відправити</button>
+        </form>
+      </section>
+    </main>
+
+    <footer class="pwa-footer">
+      <p>FiberOps CRM · Мобільне поле</p>
+      <small>Синхронізація з /api/tasks, Socket.IO кімнати, фото-звіт з offline-підтримкою.</small>
+    </footer>
+  </div>
+
+  <script src="/static/auth.js"></script>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script src="/static/mobile.js"></script>
+</body>
+</html>
