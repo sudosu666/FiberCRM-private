@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from math import ceil
 import base64
 import binascii
@@ -14,19 +14,25 @@ from sqlalchemy.orm import selectinload
 from ..config import settings
 from ..database import get_session
 from ..models import (
+    ArrivalWindow,
     Brigade,
     BrigadeMember,
     Building,
+    BuildingNote,
     Fiber,
     FiberStatus,
     InfraStatus,
     Muffle,
+    OpsComment,
+    OpsContact,
     Panel,
     Port,
     PortStatus,
     RequestStatus,
     StockItem,
     StockTransaction,
+    SubscriberRequest,
+    SubscriberRequestStatus,
     Task,
     TaskReport,
     TaskStatus,
@@ -44,10 +50,13 @@ from ..rate_limit import enforce_http_rate_limit
 from ..schemas import (
     BrigadeBoardItem,
     BrigadeUpsert,
+    DispatchStatsRead,
     FieldWorkerRead,
+    WorkerStatsRead,
     TaskAssignRequest,
     TaskStatusEventRead,
     TaskHoldRequest,
+    TaskPostponeRequest,
     TaskQueueItem,
     TaskStepRead,
     TaskStepCompleteRead,
@@ -55,6 +64,11 @@ from ..schemas import (
     StockItemRead,
     StockAdjustRequest,
     StockTransactionRead,
+    SubscriberDispatcherSummary,
+    SubscriberRequestCreate,
+    SubscriberRequestPostpone,
+    SubscriberRequestRead,
+    SubscriberRequestSchedule,
     WarehouseRequestRead,
     WarehouseRequestFulfill,
     WarehouseRequestCreate,
@@ -65,10 +79,17 @@ from ..schemas import (
     TenderDashboardRead,
     TenderCompleteRead,
     BuildingNetworkRead,
+    BuildingNoteCreate,
+    BuildingNoteRead,
+    BuildingSummaryRead,
     NetworkOverview,
     BuildingCalculateRead,
     MuffleCapacityRead,
     MuffleCapacityFiberRead,
+    OpsCommentCreate,
+    OpsCommentRead,
+    OpsContactCreate,
+    OpsContactRead,
     InfrastructureBuildingRead,
     InfrastructurePanelRead,
     InfrastructurePortRead,
@@ -83,6 +104,7 @@ from .auth_helpers import require_roles
 from .auth_helpers import user_has_role
 from ..services.logic import (
     load_brigade_board,
+    load_dispatch_stats,
     load_field_workers,
     load_network_topology,
     load_stock_items,
@@ -93,9 +115,13 @@ from ..services.logic import (
     load_tenders,
     load_network_overview,
     load_building_network,
+    load_building_summaries,
     load_field_metrics,
+    load_subscriber_dispatch_summary,
+    load_subscriber_requests,
     load_task_work_summary,
     refresh_tender_and_building_state,
+    load_worker_stats,
 )
 from ..services.realtime import manager as realtime_manager
 
@@ -104,8 +130,11 @@ router = APIRouter(prefix='/api')
 dispatcher_only = Depends(require_roles(UserRole.Dispatcher))
 designer_only = Depends(require_roles(UserRole.Designer))
 warehouse_only = Depends(require_roles(UserRole.Warehouse))
+warehouse_or_designer = Depends(require_roles(UserRole.Warehouse, UserRole.Designer))
 field_roles = Depends(require_roles(UserRole.Builder, UserRole.Welder, UserRole.Connector))
 ops_roles = Depends(require_roles(UserRole.Dispatcher, UserRole.Builder, UserRole.Welder, UserRole.Connector))
+connection_dispatcher_only = Depends(require_roles(UserRole.ConnectionDispatcher))
+subscriber_dispatch_roles = Depends(require_roles(UserRole.Dispatcher, UserRole.ConnectionDispatcher))
 
 UPLOAD_DIR = Path(__file__).resolve().parents[1] / "frontend" / "static" / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -144,6 +173,11 @@ def _build_photo_path(filename: str, payload: bytes) -> str:
     return f'/static/uploads/{target.name}'
 
 
+def _role_tag_values(tags: list[UserRole]) -> str | None:
+    values = ",".join(sorted({tag.value for tag in tags})) if tags else ""
+    return values or None
+
+
 async def _resolve_builder_user(session: AsyncSession, brigade_id: Optional[UUID]) -> Optional[User]:
     builder = None
     if brigade_id:
@@ -164,9 +198,21 @@ async def _resolve_builder_user(session: AsyncSession, brigade_id: Optional[UUID
 @router.get('/tasks', response_model=List[TaskQueueItem])
 async def get_tasks(
     session: AsyncSession = Depends(get_session),
-    _: User = ops_roles,
+    current_user: User = ops_roles,
 ) -> List[TaskQueueItem]:
-    return await load_task_queue(session)
+    queue = await load_task_queue(session)
+    if user_has_role(current_user, UserRole.Dispatcher):
+        return queue
+    brigade_ids = set((await session.scalars(
+        select(BrigadeMember.brigade_id).where(BrigadeMember.user_id == current_user.id)
+    )).all())
+    led_brigades = set((await session.scalars(
+        select(Brigade.id).where(Brigade.foreman_id == current_user.id)
+    )).all())
+    brigade_ids.update(led_brigades)
+    if not brigade_ids:
+        return []
+    return [item for item in queue if item.brigade_id and UUID(str(item.brigade_id)) in brigade_ids]
 
 
 @router.get('/tasks/{task_id}/steps', response_model=List[TaskStepRead])
@@ -257,6 +303,8 @@ async def start_task(
     task.status = TaskStatus.in_progress
     task.started_at = task.started_at or event_at
     task.hold_reason = None
+    task.postponed_reason = None
+    task.postponed_at = None
     task.is_critical = False
     session.add(task)
     session.add(WorkLog(
@@ -297,6 +345,8 @@ async def finish_task(
     task.ended_at = event_at
     task.completed_at = event_at
     task.hold_reason = None
+    task.postponed_reason = None
+    task.postponed_at = None
     task.is_critical = False
     session.add(task)
     session.add(WorkLog(
@@ -361,6 +411,53 @@ async def hold_task(
     }, room='dispatchers')
     return TaskStatusEventRead(task_id=task.id, status=task.status, event_at=event_at, hold_reason=task.hold_reason, is_critical=task.is_critical)
 
+
+@router.patch('/tasks/{task_id}/postpone', response_model=TaskStatusEventRead)
+async def postpone_task(
+    task_id: UUID,
+    body: TaskPostponeRequest,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = field_roles,
+) -> TaskStatusEventRead:
+    task = await session.get(Task, task_id)
+    if not task:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Task not found')
+    event_at = datetime.utcnow()
+    task.status = TaskStatus.on_hold
+    task.hold_reason = f'Перенос: {body.reason}'
+    task.is_critical = False
+    session.add(task)
+    session.add(OpsComment(
+        task_id=task.id,
+        author_id=current_user.id,
+        comment_type='postpone',
+        body=body.reason,
+    ))
+    session.add(WorkLog(
+        user_id=current_user.id,
+        task_id=task.id,
+        event_type='task.postponed',
+        description=body.reason,
+        quantity=1.0,
+        unit='incident',
+        event_at=event_at,
+    ))
+    await session.flush()
+    await refresh_tender_and_building_state(session, task)
+    await session.commit()
+    await realtime_manager.broadcast_event('task.status', {
+        'event_type': 'task.postponed',
+        'task_id': str(task.id),
+        'status': task.status.value,
+        'event_at': event_at.isoformat(),
+        'recorded_at': _now_iso(),
+        'is_critical': task.is_critical,
+        'hold_reason': task.hold_reason,
+        'postponed_reason': body.reason,
+        'postponed_at': event_at.isoformat(),
+    }, room='dispatchers')
+    return TaskStatusEventRead(task_id=task.id, status=task.status, event_at=event_at, hold_reason=task.hold_reason, is_critical=task.is_critical)
+
 @router.post('/tasks/{task_id}/assign', response_model=TaskQueueItem)
 async def assign_task(
     task_id: UUID,
@@ -419,7 +516,7 @@ async def get_brigades(
 @router.get('/field/workers', response_model=List[FieldWorkerRead])
 async def get_field_workers(
     session: AsyncSession = Depends(get_session),
-    _: User = dispatcher_only,
+    _: User = subscriber_dispatch_roles,
 ) -> List[FieldWorkerRead]:
     return await load_field_workers(session)
 
@@ -454,7 +551,7 @@ async def create_brigade(
         'event_type': 'brigade_board.update',
         'event_at': _now_iso(),
         'recorded_at': _now_iso(),
-        'items': [item.dict() for item in board],
+        'items': [item.model_dump(mode='json') for item in board],
     })
     for item in board:
         if item.id == brigade.id:
@@ -497,7 +594,7 @@ async def update_brigade(
         'event_type': 'brigade_board.update',
         'event_at': _now_iso(),
         'recorded_at': _now_iso(),
-        'items': [item.dict() for item in board],
+        'items': [item.model_dump(mode='json') for item in board],
     })
     for item in board:
         if item.id == brigade.id:
@@ -510,6 +607,44 @@ async def get_timeline(
     _: User = dispatcher_only,
 ) -> List[TimelineHour]:
     return await load_timeline(session)
+
+
+@router.get('/dispatch/stats', response_model=DispatchStatsRead)
+async def get_dispatch_stats(
+    status: str | None = None,
+    task_type: str | None = None,
+    brigade_id: UUID | None = None,
+    city: str | None = None,
+    critical_only: bool = False,
+    search: str | None = None,
+    session: AsyncSession = Depends(get_session),
+    _: User = dispatcher_only,
+) -> DispatchStatsRead:
+    return await load_dispatch_stats(
+        session,
+        status=status,
+        task_type=task_type,
+        brigade_id=brigade_id,
+        city=city,
+        critical_only=critical_only,
+        search=search,
+    )
+
+
+@router.get('/dispatch/workers/stats', response_model=List[WorkerStatsRead])
+async def get_dispatch_worker_stats(
+    role: str | None = None,
+    brigade_id: UUID | None = None,
+    search: str | None = None,
+    session: AsyncSession = Depends(get_session),
+    _: User = dispatcher_only,
+) -> List[WorkerStatsRead]:
+    return await load_worker_stats(
+        session,
+        role=role,
+        brigade_id=brigade_id,
+        search=search,
+    )
 
 @router.get('/network/topology', response_model=List[NetworkMuffleRead])
 async def get_network(
@@ -529,12 +664,304 @@ async def get_network_overview(
 async def get_building_network(
     building_id: UUID,
     session: AsyncSession = Depends(get_session),
-    _: User = designer_only,
+    _: User = ops_roles,
 ) -> BuildingNetworkRead:
     record = await load_building_network(session, building_id)
     if not record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Building not found')
     return record
+
+
+@router.get('/buildings', response_model=List[BuildingSummaryRead])
+async def get_buildings(
+    session: AsyncSession = Depends(get_session),
+    _: User = ops_roles,
+) -> List[BuildingSummaryRead]:
+    return await load_building_summaries(session)
+
+
+@router.get('/subscriber-requests', response_model=List[SubscriberRequestRead])
+async def get_subscriber_requests(
+    session: AsyncSession = Depends(get_session),
+    _: User = subscriber_dispatch_roles,
+) -> List[SubscriberRequestRead]:
+    return await load_subscriber_requests(session)
+
+
+@router.get('/subscriber-requests/summary', response_model=SubscriberDispatcherSummary)
+async def get_subscriber_requests_summary(
+    session: AsyncSession = Depends(get_session),
+    _: User = subscriber_dispatch_roles,
+) -> SubscriberDispatcherSummary:
+    return await load_subscriber_dispatch_summary(session)
+
+
+@router.post('/subscriber-requests', response_model=SubscriberRequestRead, status_code=status.HTTP_201_CREATED)
+async def create_subscriber_request(
+    body: SubscriberRequestCreate,
+    session: AsyncSession = Depends(get_session),
+    _: User = subscriber_dispatch_roles,
+) -> SubscriberRequestRead:
+    building = await session.get(Building, body.building_id)
+    if not building:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Building not found')
+    request = SubscriberRequest(
+        building_id=body.building_id,
+        flat_number=body.flat_number,
+        customer_name=body.customer_name,
+        phone=body.phone,
+        notes=body.notes,
+        status=SubscriberRequestStatus.new,
+        deadline_at=datetime.utcnow() + timedelta(days=14),
+    )
+    session.add(request)
+    await session.commit()
+    request = (await session.scalars(
+        select(SubscriberRequest)
+        .options(
+            selectinload(SubscriberRequest.building).selectinload(Building.panels).selectinload(Panel.ports),
+            selectinload(SubscriberRequest.assigned_user),
+        )
+        .where(SubscriberRequest.id == request.id)
+    )).one()
+    from ..services.logic import serialize_subscriber_request
+    return serialize_subscriber_request(request)
+
+
+@router.patch('/subscriber-requests/{request_id}/schedule', response_model=SubscriberRequestRead)
+async def schedule_subscriber_request(
+    request_id: UUID,
+    body: SubscriberRequestSchedule,
+    session: AsyncSession = Depends(get_session),
+    _: User = connection_dispatcher_only,
+) -> SubscriberRequestRead:
+    request = await session.get(SubscriberRequest, request_id)
+    if not request:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Subscriber request not found')
+    assigned_user = await session.get(User, body.assigned_user_id)
+    if not assigned_user or not any(user_has_role(assigned_user, role) for role in (UserRole.Builder, UserRole.Welder, UserRole.Connector)):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail='Assigned user should be a field technician')
+    request.scheduled_date = body.scheduled_date
+    request.arrival_window = ArrivalWindow(body.arrival_window.value)
+    request.assigned_user_id = body.assigned_user_id
+    request.status = SubscriberRequestStatus.scheduled
+    session.add(request)
+    await session.commit()
+    request = (await session.scalars(
+        select(SubscriberRequest)
+        .options(
+            selectinload(SubscriberRequest.building).selectinload(Building.panels).selectinload(Panel.ports),
+            selectinload(SubscriberRequest.assigned_user),
+        )
+        .where(SubscriberRequest.id == request_id)
+    )).one()
+    from ..services.logic import serialize_subscriber_request
+    return serialize_subscriber_request(request)
+
+
+@router.patch('/subscriber-requests/{request_id}/postpone', response_model=SubscriberRequestRead)
+async def postpone_subscriber_request(
+    request_id: UUID,
+    body: SubscriberRequestPostpone,
+    session: AsyncSession = Depends(get_session),
+    _: User = connection_dispatcher_only,
+) -> SubscriberRequestRead:
+    request = await session.get(SubscriberRequest, request_id)
+    if not request:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Subscriber request not found')
+    request.status = SubscriberRequestStatus.postponed
+    session.add(request)
+    session.add(OpsComment(
+        subscriber_request_id=request.id,
+        comment_type='postpone',
+        body=body.reason,
+    ))
+    await session.commit()
+    request = (await session.scalars(
+        select(SubscriberRequest)
+        .options(
+            selectinload(SubscriberRequest.building).selectinload(Building.panels).selectinload(Panel.ports),
+            selectinload(SubscriberRequest.assigned_user),
+        )
+        .where(SubscriberRequest.id == request_id)
+    )).one()
+    from ..services.logic import serialize_subscriber_request
+    return serialize_subscriber_request(request)
+
+
+@router.get('/subscriber-requests/{request_id}/comments', response_model=List[OpsCommentRead])
+async def get_subscriber_request_comments(
+    request_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    _: User = subscriber_dispatch_roles,
+) -> List[OpsCommentRead]:
+    request = await session.get(SubscriberRequest, request_id)
+    if not request:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Subscriber request not found')
+    comments = (await session.scalars(
+        select(OpsComment)
+        .options(selectinload(OpsComment.author))
+        .where(OpsComment.subscriber_request_id == request_id)
+        .order_by(OpsComment.created_at.desc())
+    )).all()
+    from ..services.logic import serialize_ops_comment
+    return [serialize_ops_comment(comment) for comment in comments]
+
+
+@router.post('/subscriber-requests/{request_id}/comments', response_model=OpsCommentRead, status_code=status.HTTP_201_CREATED)
+async def create_subscriber_request_comment(
+    request_id: UUID,
+    body: OpsCommentCreate,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = subscriber_dispatch_roles,
+) -> OpsCommentRead:
+    request = await session.get(SubscriberRequest, request_id)
+    if not request:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Subscriber request not found')
+    comment = OpsComment(
+        subscriber_request_id=request_id,
+        author_id=current_user.id,
+        comment_type=body.comment_type,
+        body=body.body,
+        role_tags=_role_tag_values(body.role_tags),
+    )
+    session.add(comment)
+    await session.commit()
+    comment = (await session.scalars(
+        select(OpsComment).options(selectinload(OpsComment.author)).where(OpsComment.id == comment.id)
+    )).one()
+    from ..services.logic import serialize_ops_comment
+    return serialize_ops_comment(comment)
+
+
+@router.get('/subscriber-requests/{request_id}/contacts', response_model=List[OpsContactRead])
+async def get_subscriber_request_contacts(
+    request_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    _: User = subscriber_dispatch_roles,
+) -> List[OpsContactRead]:
+    request = await session.get(SubscriberRequest, request_id)
+    if not request:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Subscriber request not found')
+    contacts = (await session.scalars(
+        select(OpsContact).where(OpsContact.subscriber_request_id == request_id).order_by(OpsContact.created_at.desc())
+    )).all()
+    from ..services.logic import serialize_ops_contact
+    return [serialize_ops_contact(contact) for contact in contacts]
+
+
+@router.post('/subscriber-requests/{request_id}/contacts', response_model=OpsContactRead, status_code=status.HTTP_201_CREATED)
+async def create_subscriber_request_contact(
+    request_id: UUID,
+    body: OpsContactCreate,
+    session: AsyncSession = Depends(get_session),
+    _: User = subscriber_dispatch_roles,
+) -> OpsContactRead:
+    request = await session.get(SubscriberRequest, request_id)
+    if not request:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Subscriber request not found')
+    contact = OpsContact(
+        subscriber_request_id=request_id,
+        title=body.title,
+        full_name=body.full_name,
+        phone=body.phone,
+        notes=body.notes,
+    )
+    session.add(contact)
+    await session.commit()
+    from ..services.logic import serialize_ops_contact
+    return serialize_ops_contact(contact)
+
+
+@router.get('/buildings/{building_id}/notes', response_model=List[BuildingNoteRead])
+async def get_building_notes(
+    building_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    _: User = ops_roles,
+) -> List[BuildingNoteRead]:
+    building = await session.get(Building, building_id)
+    if not building:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Building not found')
+    notes = (await session.scalars(
+        select(BuildingNote)
+        .options(selectinload(BuildingNote.author))
+        .where(BuildingNote.building_id == building_id)
+        .order_by(BuildingNote.created_at.desc())
+    )).all()
+    from ..services.logic import serialize_building_note
+    return [serialize_building_note(note) for note in notes]
+
+
+@router.post('/buildings/{building_id}/notes', response_model=BuildingNoteRead, status_code=status.HTTP_201_CREATED)
+async def create_building_note(
+    building_id: UUID,
+    body: BuildingNoteCreate,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = ops_roles,
+) -> BuildingNoteRead:
+    building = await session.get(Building, building_id)
+    if not building:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Building not found')
+    note = BuildingNote(
+        building_id=building_id,
+        author_id=current_user.id,
+        body=body.body,
+        role_tags=",".join(sorted({role.value for role in body.role_tags})) or None,
+    )
+    session.add(note)
+    await session.commit()
+    note = (await session.scalars(
+        select(BuildingNote)
+        .options(selectinload(BuildingNote.author))
+        .where(BuildingNote.id == note.id)
+    )).one()
+    from ..services.logic import serialize_building_note
+    return serialize_building_note(note)
+
+
+@router.get('/buildings/{building_id}/comments', response_model=List[OpsCommentRead])
+async def get_building_comments(
+    building_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    _: User = ops_roles,
+) -> List[OpsCommentRead]:
+    building = await session.get(Building, building_id)
+    if not building:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Building not found')
+    comments = (await session.scalars(
+        select(OpsComment)
+        .options(selectinload(OpsComment.author))
+        .where(OpsComment.building_id == building_id)
+        .order_by(OpsComment.created_at.desc())
+    )).all()
+    from ..services.logic import serialize_ops_comment
+    return [serialize_ops_comment(comment) for comment in comments]
+
+
+@router.post('/buildings/{building_id}/comments', response_model=OpsCommentRead, status_code=status.HTTP_201_CREATED)
+async def create_building_comment(
+    building_id: UUID,
+    body: OpsCommentCreate,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = ops_roles,
+) -> OpsCommentRead:
+    building = await session.get(Building, building_id)
+    if not building:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Building not found')
+    comment = OpsComment(
+        building_id=building_id,
+        author_id=current_user.id,
+        comment_type=body.comment_type,
+        body=body.body,
+        role_tags=_role_tag_values(body.role_tags),
+    )
+    session.add(comment)
+    await session.commit()
+    comment = (await session.scalars(
+        select(OpsComment).options(selectinload(OpsComment.author)).where(OpsComment.id == comment.id)
+    )).one()
+    from ..services.logic import serialize_ops_comment
+    return serialize_ops_comment(comment)
 
 
 @router.post('/network/buildings/{building_id}/calculate', response_model=BuildingCalculateRead)
@@ -612,6 +1039,8 @@ async def create_network_plan(
         tender_id=tender.id,
         address=body.address,
         city=body.city or tender.city,
+        servicing_org_name=body.servicing_org_name,
+        servicing_org_phone=body.servicing_org_phone,
         entrances_count=body.entrances_count,
         floors_count=body.floors_count,
         flats_per_floor=body.flats_per_floor,
@@ -728,7 +1157,10 @@ async def get_infrastructure_registry(
         panels = (await session.scalars(
             select(Panel).options(selectinload(Panel.ports)).where(Panel.building_id == building.id)
         )).all()
+        metrics = calculate_building_metrics(building)
         panel_items: list[InfrastructurePanelRead] = []
+        connected_lines = 0
+        reserved_lines = 0
         for panel in panels:
             ports = [
                 InfrastructurePortRead(
@@ -739,6 +1171,8 @@ async def get_infrastructure_registry(
                 )
                 for port in panel.ports
             ]
+            connected_lines += sum(1 for port in panel.ports if port.status == PortStatus.active)
+            reserved_lines += sum(1 for port in panel.ports if port.status == PortStatus.reserved)
             panel_items.append(InfrastructurePanelRead(
                 panel_id=panel.id,
                 entrance_num=panel.entrance_num,
@@ -746,12 +1180,20 @@ async def get_infrastructure_registry(
                 label=panel.label,
                 ports=ports,
             ))
+        notes = (await session.scalars(
+            select(BuildingNote).options(selectinload(BuildingNote.author)).where(BuildingNote.building_id == building.id).order_by(BuildingNote.created_at.desc())
+        )).all()
+        from ..services.logic import serialize_building_note
         payload.append(InfrastructureBuildingRead(
             building_id=building.id,
             address=building.address,
             city=building.city,
             infrastructure_status=building.infrastructure_status.value if isinstance(building.infrastructure_status, InfraStatus) else str(building.infrastructure_status),
+            connected_lines=connected_lines,
+            reserved_lines=reserved_lines,
+            unclaimed_lines=max(0, metrics.total_flats - connected_lines - reserved_lines),
             panels=panel_items,
+            notes=[serialize_building_note(note) for note in notes],
         ))
     return payload
 
@@ -906,7 +1348,7 @@ async def complete_tender(
 @router.get('/stock', response_model=List[StockItemRead])
 async def get_stock(
     session: AsyncSession = Depends(get_session),
-    _: User = warehouse_only,
+    _: User = warehouse_or_designer,
 ) -> List[StockItemRead]:
     return await load_stock_items(session)
 
@@ -1101,6 +1543,90 @@ async def get_task_work_summary(
     if not summary:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Task not found')
     return summary
+
+
+@router.get('/tasks/{task_id}/comments', response_model=List[OpsCommentRead])
+async def get_task_comments(
+    task_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    _: User = ops_roles,
+) -> List[OpsCommentRead]:
+    task = await session.get(Task, task_id)
+    if not task:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Task not found')
+    comments = (await session.scalars(
+        select(OpsComment)
+        .options(selectinload(OpsComment.author))
+        .where(OpsComment.task_id == task_id)
+        .order_by(OpsComment.created_at.desc())
+    )).all()
+    from ..services.logic import serialize_ops_comment
+    return [serialize_ops_comment(comment) for comment in comments]
+
+
+@router.post('/tasks/{task_id}/comments', response_model=OpsCommentRead, status_code=status.HTTP_201_CREATED)
+async def create_task_comment(
+    task_id: UUID,
+    body: OpsCommentCreate,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = ops_roles,
+) -> OpsCommentRead:
+    task = await session.get(Task, task_id)
+    if not task:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Task not found')
+    comment = OpsComment(
+        task_id=task_id,
+        author_id=current_user.id,
+        comment_type=body.comment_type,
+        body=body.body,
+        role_tags=_role_tag_values(body.role_tags),
+    )
+    session.add(comment)
+    await session.commit()
+    comment = (await session.scalars(
+        select(OpsComment).options(selectinload(OpsComment.author)).where(OpsComment.id == comment.id)
+    )).one()
+    from ..services.logic import serialize_ops_comment
+    return serialize_ops_comment(comment)
+
+
+@router.get('/tasks/{task_id}/contacts', response_model=List[OpsContactRead])
+async def get_task_contacts(
+    task_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    _: User = ops_roles,
+) -> List[OpsContactRead]:
+    task = await session.get(Task, task_id)
+    if not task:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Task not found')
+    contacts = (await session.scalars(
+        select(OpsContact).where(OpsContact.task_id == task_id).order_by(OpsContact.created_at.desc())
+    )).all()
+    from ..services.logic import serialize_ops_contact
+    return [serialize_ops_contact(contact) for contact in contacts]
+
+
+@router.post('/tasks/{task_id}/contacts', response_model=OpsContactRead, status_code=status.HTTP_201_CREATED)
+async def create_task_contact(
+    task_id: UUID,
+    body: OpsContactCreate,
+    session: AsyncSession = Depends(get_session),
+    _: User = ops_roles,
+) -> OpsContactRead:
+    task = await session.get(Task, task_id)
+    if not task:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Task not found')
+    contact = OpsContact(
+        task_id=task_id,
+        title=body.title,
+        full_name=body.full_name,
+        phone=body.phone,
+        notes=body.notes,
+    )
+    session.add(contact)
+    await session.commit()
+    from ..services.logic import serialize_ops_contact
+    return serialize_ops_contact(contact)
 
 
 @router.post('/tasks/{task_id}/reports', response_model=TaskReportRead, status_code=status.HTTP_201_CREATED)

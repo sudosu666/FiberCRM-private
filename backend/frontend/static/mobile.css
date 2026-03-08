@@ -58,6 +58,10 @@ body {
   font-size: 0.85rem;
 }
 
+.postpone-alert {
+  color: #ffb703;
+}
+
 .meta {
   display: flex;
   flex-direction: column;

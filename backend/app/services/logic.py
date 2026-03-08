@@ -1,3 +1,4 @@
+from datetime import datetime
 from math import ceil
 from typing import List, Optional
 from uuid import UUID
@@ -7,7 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..models import (
+    ArrivalWindow,
     Building,
+    BuildingNote,
     Brigade,
     BrigadeMember,
     Fiber,
@@ -15,16 +18,23 @@ from ..models import (
     InfraStatus,
     Muffle,
     Message,
+    OpsComment,
+    OpsContact,
+    Panel,
     Port,
     PortStatus,
+    ClientConnection,
     StockItem,
     StockTransaction,
     Task,
     TaskReport,
     TaskStatus,
     TaskStep,
+    TaskType,
     Tender,
     TenderStatus,
+    SubscriberRequest,
+    SubscriberRequestStatus,
     User,
     UserRole,
     WorkLog,
@@ -41,8 +51,18 @@ from ..schemas import (
     NetworkMuffleRead,
     NetworkOverview,
     BuildingNetworkRead,
+    BuildingNoteRead,
+    BuildingSummaryRead,
+    DispatchFilterOption,
+    DispatchStatsRead,
+    DispatchStatsTaskTypeBreakdown,
+    OpsCommentRead,
+    OpsContactRead,
     StockItemRead,
     StockTransactionRead,
+    SubscriberDispatcherSummary,
+    SubscriberRequestRead,
+    WorkerStatsRead,
     TaskQueueItem,
     TimelineBlock,
     TimelineHour,
@@ -74,6 +94,57 @@ def calculate_building_metrics(building: Building) -> BuildingMetrics:
     )
 
 
+def serialize_building_note(note: BuildingNote) -> BuildingNoteRead:
+    tags = []
+    if note.role_tags:
+        tags = [UserRole(tag.strip()) for tag in note.role_tags.split(',') if tag.strip()]
+    return BuildingNoteRead(
+        id=note.id,
+        building_id=note.building_id,
+        author_id=note.author_id,
+        author_name=note.author.name if note.author else None,
+        body=note.body,
+        role_tags=tags,
+        created_at=note.created_at,
+    )
+
+
+def serialize_ops_comment(comment: OpsComment) -> OpsCommentRead:
+    tags = []
+    if comment.role_tags:
+        tags = [UserRole(tag.strip()) for tag in comment.role_tags.split(',') if tag.strip()]
+    return OpsCommentRead(
+        id=comment.id,
+        building_id=comment.building_id,
+        task_id=comment.task_id,
+        subscriber_request_id=comment.subscriber_request_id,
+        author_id=comment.author_id,
+        author_name=comment.author.name if comment.author else None,
+        comment_type=comment.comment_type,
+        body=comment.body,
+        role_tags=tags,
+        created_at=comment.created_at,
+    )
+
+
+def serialize_ops_contact(contact: OpsContact) -> OpsContactRead:
+    return OpsContactRead(
+        id=contact.id,
+        title=contact.title,
+        full_name=contact.full_name,
+        phone=contact.phone,
+        notes=contact.notes,
+        created_at=contact.created_at,
+    )
+
+
+def latest_postpone_comment(comments: list[OpsComment] | None) -> OpsComment | None:
+    postpone_comments = [item for item in (comments or []) if item.comment_type == 'postpone']
+    if not postpone_comments:
+        return None
+    return max(postpone_comments, key=lambda item: item.created_at)
+
+
 def _task_progress_pct(task: Task) -> int:
     if task.status == TaskStatus.completed:
         return 100
@@ -82,6 +153,21 @@ def _task_progress_pct(task: Task) -> int:
     if task.status == TaskStatus.assigned:
         return 35
     return 10
+
+
+def building_line_usage(building: Building | None) -> tuple[int, int, int]:
+    if not building:
+        return 0, 0, 0
+    connected = 0
+    reserved = 0
+    for panel in building.panels or []:
+        for port in panel.ports or []:
+            if port.status == PortStatus.active:
+                connected += 1
+            elif port.status == PortStatus.reserved:
+                reserved += 1
+    total_flats = calculate_building_metrics(building).total_flats
+    return connected, reserved, max(0, total_flats - connected - reserved)
 
 
 def task_to_queue_item(task: Task) -> TaskQueueItem:
@@ -94,6 +180,11 @@ def task_to_queue_item(task: Task) -> TaskQueueItem:
         distance_from_muffle=0.0,
         cable_reserve_pct=0,
     )
+    connected_lines, reserved_lines, unclaimed_lines = building_line_usage(task.building)
+    postpone_comment = latest_postpone_comment(getattr(task, "comments", None))
+    postponed_at = postpone_comment.created_at if postpone_comment else None
+    is_postponed = postpone_comment is not None and task.status == TaskStatus.on_hold
+    postponed_over_shift = bool(postponed_at and (datetime.utcnow() - postponed_at).total_seconds() > 8 * 3600)
     return TaskQueueItem(
         id=str(task.id),
         type=task.type,
@@ -110,6 +201,15 @@ def task_to_queue_item(task: Task) -> TaskQueueItem:
         started_at=task.started_at,
         ended_at=task.ended_at,
         metrics=metrics,
+        connected_lines=connected_lines,
+        reserved_lines=reserved_lines,
+        unclaimed_lines=unclaimed_lines,
+        is_postponed=is_postponed,
+        postponed_reason=postpone_comment.body if postpone_comment else None,
+        postponed_at=postponed_at,
+        postponed_over_shift=postponed_over_shift,
+        contacts=[serialize_ops_contact(contact) for contact in sorted(getattr(task, "contacts", []) or [], key=lambda item: item.created_at, reverse=True)],
+        comments=[serialize_ops_comment(comment) for comment in sorted(getattr(task, "comments", []) or [], key=lambda item: item.created_at, reverse=True)],
         status_changed_at=task.ended_at or task.completed_at or task.started_at or task.assigned_at or task.created_at,
     )
 
@@ -151,10 +251,184 @@ def _network_fibers_for_muffle(muffle: Muffle, fibers: List[Fiber]) -> List[Netw
 
 
 async def load_task_queue(session: AsyncSession) -> List[TaskQueueItem]:
-    stmt = select(Task).options(selectinload(Task.building), selectinload(Task.brigade))
+    stmt = select(Task).options(
+        selectinload(Task.building).selectinload(Building.panels).selectinload(Panel.ports),
+        selectinload(Task.brigade),
+        selectinload(Task.contacts),
+        selectinload(Task.comments).selectinload(OpsComment.author),
+    )
     result = await session.scalars(stmt)
     tasks = result.all()
     return [task_to_queue_item(task) for task in tasks]
+
+
+async def load_building_summaries(session: AsyncSession) -> List[BuildingSummaryRead]:
+    stmt = (
+        select(Building)
+        .options(
+            selectinload(Building.panels).selectinload(Panel.ports),
+            selectinload(Building.notes).selectinload(BuildingNote.author),
+            selectinload(Building.comments).selectinload(OpsComment.author),
+        )
+        .order_by(Building.city, Building.address)
+    )
+    buildings = list((await session.scalars(stmt)).all())
+    payload: list[BuildingSummaryRead] = []
+    for building in buildings:
+        connected_lines, reserved_lines, unclaimed_lines = building_line_usage(building)
+        payload.append(BuildingSummaryRead(
+            building_id=building.id,
+            address=building.address,
+            city=building.city,
+            servicing_org_name=building.servicing_org_name,
+            servicing_org_phone=building.servicing_org_phone,
+            infrastructure_status=building.infrastructure_status.value if isinstance(building.infrastructure_status, InfraStatus) else str(building.infrastructure_status),
+            metrics=calculate_building_metrics(building),
+            connected_lines=connected_lines,
+            reserved_lines=reserved_lines,
+            unclaimed_lines=unclaimed_lines,
+            notes=[serialize_building_note(note) for note in sorted(building.notes or [], key=lambda item: item.created_at, reverse=True)],
+            comments=[serialize_ops_comment(comment) for comment in sorted(getattr(building, "comments", []) or [], key=lambda item: item.created_at, reverse=True)],
+        ))
+    return payload
+
+
+def serialize_subscriber_request(request: SubscriberRequest) -> SubscriberRequestRead:
+    connected_lines, reserved_lines, unclaimed_lines = building_line_usage(request.building)
+    postpone_comment = latest_postpone_comment(getattr(request, "comments", None))
+    postponed_at = postpone_comment.created_at if postpone_comment else None
+    postponed_over_shift = bool(postponed_at and (datetime.utcnow() - postponed_at).total_seconds() > 8 * 3600)
+    return SubscriberRequestRead(
+        id=request.id,
+        building_id=request.building_id,
+        building_address=request.building.address if request.building else "—",
+        city=request.building.city if request.building else None,
+        flat_number=request.flat_number,
+        customer_name=request.customer_name,
+        phone=request.phone,
+        notes=request.notes,
+        status=SubscriberRequestStatus(request.status.value if hasattr(request.status, "value") else str(request.status)),
+        registered_at=request.registered_at,
+        deadline_at=request.deadline_at,
+        scheduled_date=request.scheduled_date,
+        arrival_window=ArrivalWindow(request.arrival_window.value if request.arrival_window and hasattr(request.arrival_window, "value") else request.arrival_window) if request.arrival_window else None,
+        assigned_user_id=request.assigned_user_id,
+        assigned_user_name=request.assigned_user.name if request.assigned_user else None,
+        is_postponed=postpone_comment is not None and request.status == SubscriberRequestStatus.postponed,
+        postponed_reason=postpone_comment.body if postpone_comment else None,
+        postponed_at=postponed_at,
+        postponed_over_shift=postponed_over_shift,
+        connected_lines=connected_lines,
+        reserved_lines=reserved_lines,
+        unclaimed_lines=unclaimed_lines,
+        technical_possible=unclaimed_lines > 0,
+        contacts=[serialize_ops_contact(contact) for contact in sorted(getattr(request, "contacts", []) or [], key=lambda item: item.created_at, reverse=True)],
+        comments=[serialize_ops_comment(comment) for comment in sorted(getattr(request, "comments", []) or [], key=lambda item: item.created_at, reverse=True)],
+    )
+
+
+async def load_subscriber_requests(session: AsyncSession) -> List[SubscriberRequestRead]:
+    stmt = (
+        select(SubscriberRequest)
+        .options(
+            selectinload(SubscriberRequest.building).selectinload(Building.panels).selectinload(Panel.ports),
+            selectinload(SubscriberRequest.assigned_user),
+            selectinload(SubscriberRequest.contacts),
+            selectinload(SubscriberRequest.comments).selectinload(OpsComment.author),
+        )
+        .order_by(SubscriberRequest.registered_at.desc())
+    )
+    requests = list((await session.scalars(stmt)).all())
+    return [serialize_subscriber_request(item) for item in requests]
+
+
+async def load_subscriber_dispatch_summary(session: AsyncSession) -> SubscriberDispatcherSummary:
+    requests = await load_subscriber_requests(session)
+    now = datetime.utcnow()
+    return SubscriberDispatcherSummary(
+        total_requests=len(requests),
+        new_requests=sum(1 for item in requests if item.status == SubscriberRequestStatus.new),
+        scheduled_requests=sum(1 for item in requests if item.status == SubscriberRequestStatus.scheduled),
+        overdue_requests=sum(1 for item in requests if item.deadline_at < now and item.status not in {SubscriberRequestStatus.completed, SubscriberRequestStatus.canceled}),
+        technical_blocked=sum(1 for item in requests if not item.technical_possible),
+    )
+
+
+async def load_dispatch_stats(
+    session: AsyncSession,
+    *,
+    status: str | None = None,
+    task_type: str | None = None,
+    brigade_id: UUID | None = None,
+    city: str | None = None,
+    critical_only: bool = False,
+    search: str | None = None,
+) -> DispatchStatsRead:
+    stmt = select(Task).options(selectinload(Task.building), selectinload(Task.brigade))
+    tasks = list((await session.scalars(stmt)).all())
+
+    def matches(task: Task) -> bool:
+        if status and task.status.value != status:
+            return False
+        if task_type and task.type.value != task_type:
+            return False
+        if brigade_id and task.brigade_id != brigade_id:
+            return False
+        if city and ((task.building.city if task.building else None) or '').lower() != city.lower():
+            return False
+        if critical_only and not task.is_critical:
+            return False
+        if search:
+            haystack = ' '.join([
+                task.description or '',
+                task.building.address if task.building else '',
+                task.brigade.name if task.brigade else '',
+                task.building.city if task.building and task.building.city else '',
+            ]).lower()
+            if search.lower() not in haystack:
+                return False
+        return True
+
+    filtered = [task for task in tasks if matches(task)]
+    total_tasks = len(filtered)
+    estimated = [float(task.estimated_hours or 0.0) for task in filtered]
+    type_breakdown: list[DispatchStatsTaskTypeBreakdown] = []
+    for current_type in TaskType:
+        scoped = [task for task in filtered if task.type == current_type]
+        type_breakdown.append(DispatchStatsTaskTypeBreakdown(
+            type=current_type,
+            total=len(scoped),
+            pending=sum(1 for task in scoped if task.status == TaskStatus.pending),
+            assigned=sum(1 for task in scoped if task.status == TaskStatus.assigned),
+            in_progress=sum(1 for task in scoped if task.status == TaskStatus.in_progress),
+            on_hold=sum(1 for task in scoped if task.status == TaskStatus.on_hold),
+            completed=sum(1 for task in scoped if task.status == TaskStatus.completed),
+        ))
+
+    brigade_options = sorted({
+        (str(task.brigade_id), task.brigade.name)
+        for task in tasks if task.brigade_id and task.brigade
+    }, key=lambda item: item[1])
+    city_options = sorted({
+        task.building.city.strip()
+        for task in tasks if task.building and task.building.city and task.building.city.strip()
+    })
+
+    return DispatchStatsRead(
+        total_tasks=total_tasks,
+        pending_tasks=sum(1 for task in filtered if task.status == TaskStatus.pending),
+        assigned_tasks=sum(1 for task in filtered if task.status == TaskStatus.assigned),
+        in_progress_tasks=sum(1 for task in filtered if task.status == TaskStatus.in_progress),
+        on_hold_tasks=sum(1 for task in filtered if task.status == TaskStatus.on_hold),
+        completed_tasks=sum(1 for task in filtered if task.status == TaskStatus.completed),
+        critical_tasks=sum(1 for task in filtered if task.is_critical),
+        unassigned_tasks=sum(1 for task in filtered if task.brigade_id is None),
+        avg_estimated_hours=round((sum(estimated) / total_tasks), 2) if total_tasks else 0.0,
+        total_estimated_hours=round(sum(estimated), 2),
+        type_breakdown=type_breakdown,
+        brigade_options=[DispatchFilterOption(value=value, label=label) for value, label in brigade_options],
+        city_options=[DispatchFilterOption(value=value, label=value) for value in city_options],
+    )
 
 
 async def load_brigade_board(session: AsyncSession) -> List[BrigadeBoardItem]:
@@ -204,6 +478,72 @@ async def load_field_workers(session: AsyncSession) -> List[FieldWorkerRead]:
         ))
     workers.sort(key=lambda item: item.name)
     return workers
+
+
+async def load_worker_stats(
+    session: AsyncSession,
+    *,
+    role: str | None = None,
+    brigade_id: UUID | None = None,
+    search: str | None = None,
+) -> List[WorkerStatsRead]:
+    users = (await session.scalars(select(User))).all()
+    memberships = (await session.scalars(
+        select(BrigadeMember).options(selectinload(BrigadeMember.brigade))
+    )).all()
+    membership_map: dict[UUID, BrigadeMember] = {member.user_id: member for member in memberships}
+    field_roles = {UserRole.Builder, UserRole.Welder, UserRole.Connector}
+    task_stmt = select(Task).options(selectinload(Task.brigade))
+    tasks = (await session.scalars(task_stmt)).all()
+    reports = (await session.scalars(select(TaskReport))).all()
+    steps = (await session.scalars(select(TaskStep))).all()
+    logs = (await session.scalars(select(WorkLog))).all()
+
+    records: list[WorkerStatsRead] = []
+    for user in users:
+        user_roles = {UserRole(entry) for entry in sorted(user_role_values(user))}
+        if not user_roles.intersection(field_roles):
+            continue
+        membership = membership_map.get(user.id)
+        brigade = membership.brigade if membership else None
+        if role and user.role.value != role and role not in {entry.value for entry in user_roles}:
+            continue
+        if brigade_id and (not brigade or brigade.id != brigade_id):
+            continue
+        if search and search.lower() not in f"{user.name} {user.phone} {brigade.name if brigade else ''}".lower():
+            continue
+
+        user_task_ids = {
+            task.id for task in tasks
+            if task.brigade_id and brigade and task.brigade_id == brigade.id
+        }
+        user_logs = [log for log in logs if log.user_id == user.id]
+        user_steps = [step for step in steps if step.done_by == user.id]
+        user_reports = [report for report in reports if report.user_id == user.id]
+
+        assigned_tasks = sum(1 for task in tasks if task.id in user_task_ids and task.status == TaskStatus.assigned)
+        in_progress_tasks = sum(1 for task in tasks if task.id in user_task_ids and task.status == TaskStatus.in_progress)
+        completed_tasks = sum(1 for task in tasks if task.id in user_task_ids and task.status == TaskStatus.completed)
+        on_hold_events = sum(1 for log in user_logs if log.event_type == 'task.on_hold')
+
+        records.append(WorkerStatsRead(
+            user_id=user.id,
+            name=user.name,
+            phone=user.phone,
+            role=user.role,
+            brigade_id=brigade.id if brigade else None,
+            brigade_name=brigade.name if brigade else None,
+            assigned_tasks=assigned_tasks,
+            in_progress_tasks=in_progress_tasks,
+            completed_tasks=completed_tasks,
+            on_hold_events=on_hold_events,
+            completed_steps=len(user_steps),
+            photo_reports=len(user_reports),
+            worklog_entries=len(user_logs),
+            total_logged_quantity=round(sum(float(log.quantity or 0) for log in user_logs), 2),
+        ))
+    records.sort(key=lambda item: (-item.completed_tasks, -item.in_progress_tasks, item.name))
+    return records
 
 
 async def load_timeline(session: AsyncSession) -> List[TimelineHour]:
@@ -407,10 +747,23 @@ async def load_building_network(session: AsyncSession, building_id: UUID) -> Opt
     if not building:
         return None
     metrics = calculate_building_metrics(building)
+    panels = (await session.scalars(select(Panel).where(Panel.building_id == building.id))).all()
+    panel_ids = [panel.id for panel in panels]
+    ports = (await session.scalars(select(Port).where(Port.panel_id.in_(panel_ids)))).all() if panel_ids else []
+    connected_lines = sum(1 for port in ports if port.status == PortStatus.active)
+    reserved_lines = sum(1 for port in ports if port.status == PortStatus.reserved)
+    unclaimed_lines = max(0, metrics.total_flats - connected_lines - reserved_lines)
     return BuildingNetworkRead(
         id=building.id,
         address=building.address,
+        city=building.city,
+        servicing_org_name=building.servicing_org_name,
+        servicing_org_phone=building.servicing_org_phone,
         metrics=metrics,
+        connected_lines=connected_lines,
+        reserved_lines=reserved_lines,
+        unclaimed_lines=unclaimed_lines,
+        comments=[],
     )
 
 

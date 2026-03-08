@@ -31,6 +31,47 @@
   </header>
 
   <main class="layout">
+    <section class="card card-wide">
+      <div class="card-head">
+        <h2>Аналітика та фільтри</h2>
+        <button id="applyFilters" type="button">Застосувати</button>
+      </div>
+      <div class="filters-grid">
+        <input id="filterSearch" type="text" placeholder="Пошук: адреса, місто, опис, бригада">
+        <select id="filterStatus">
+          <option value="">Всі статуси</option>
+          <option value="pending">pending</option>
+          <option value="assigned">assigned</option>
+          <option value="in_progress">in_progress</option>
+          <option value="on_hold">on_hold</option>
+          <option value="completed">completed</option>
+        </select>
+        <select id="filterType">
+          <option value="">Всі типи</option>
+          <option value="construction">construction</option>
+          <option value="welding">welding</option>
+          <option value="connection">connection</option>
+        </select>
+        <select id="filterBrigade">
+          <option value="">Всі бригади</option>
+        </select>
+        <select id="filterCity">
+          <option value="">Всі міста</option>
+        </select>
+        <label class="toggle-line"><input id="filterCritical" type="checkbox"> Тільки критичні</label>
+      </div>
+      <div id="statsCards" class="stats-grid">
+        <p class="placeholder">Завантаження аналітики...</p>
+      </div>
+      <div id="statsBreakdown" class="stack"></div>
+      <div class="card-head">
+        <h2>Сотрудники</h2>
+      </div>
+      <div id="workerStats" class="stack">
+        <p class="placeholder">Завантаження статистики по працівниках...</p>
+      </div>
+    </section>
+
     <section class="card">
       <div class="card-head">
         <h2>Задачі</h2>
@@ -38,6 +79,19 @@
       </div>
       <div id="tasksList" class="stack">
         <p class="placeholder">Завантаження задач...</p>
+      </div>
+    </section>
+
+    <section class="card card-wide">
+      <div class="card-head">
+        <h2>Будинки, лінії та нотатки</h2>
+        <span class="meta">Незатребувані лінії показують запас під підключення</span>
+      </div>
+      <div class="filters-grid filters-grid-buildings">
+        <input id="buildingSearch" type="text" placeholder="Пошук будинку: адреса, місто, нотатка">
+      </div>
+      <div id="buildingsList" class="stack">
+        <p class="placeholder">Завантаження будинків...</p>
       </div>
     </section>
 

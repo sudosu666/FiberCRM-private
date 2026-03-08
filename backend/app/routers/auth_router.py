@@ -22,6 +22,15 @@ from ..database import get_session
 router = APIRouter(prefix='')
 dispatcher_only = Depends(require_roles(UserRole.Dispatcher))
 
+
+def _normalize_requested_roles(primary: UserRole, extras: list[UserRole]) -> tuple[UserRole, list[UserRole]]:
+    normalized_primary = primary
+    normalized_extras = [role for role in extras if role != primary]
+    if primary == UserRole.ConnectionDispatcher:
+        normalized_primary = UserRole.Dispatcher
+        normalized_extras.append(UserRole.ConnectionDispatcher)
+    return normalized_primary, sorted(set(normalized_extras), key=lambda role: role.value)
+
 @router.post('/token', response_model=Token)
 async def login(
     request: Request,
@@ -103,8 +112,9 @@ async def update_user_roles(
     user = await session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='User not found')
-    extras = [role.value for role in body.additional_roles if role != body.role]
-    user.role = body.role
+    primary_role, extra_roles = _normalize_requested_roles(body.role, body.additional_roles)
+    extras = [role.value for role in extra_roles if role != primary_role]
+    user.role = primary_role
     user.additional_roles = ",".join(sorted(set(extras))) or None
     user.is_active = body.is_active
     session.add(user)
@@ -136,12 +146,13 @@ async def register(
     existing = await get_user_by_phone(session, user_in.phone)
     if existing:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Phone already registered')
+    primary_role, extra_roles = _normalize_requested_roles(user_in.role, user_in.additional_roles)
     user = User(
         name=user_in.name,
         phone=user_in.phone,
         email=user_in.email,
-        role=user_in.role,
-        additional_roles=",".join(role.value for role in user_in.additional_roles if role != user_in.role) or None,
+        role=primary_role,
+        additional_roles=",".join(role.value for role in extra_roles if role != primary_role) or None,
         password_hash=get_password_hash(user_in.password),
     )
     session.add(user)

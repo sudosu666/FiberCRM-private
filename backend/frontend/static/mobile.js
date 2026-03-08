@@ -24,6 +24,7 @@ const signalStrength = qs('#signalStrength');
 const chatStatus = qs('#chatStatus');
 const holdReasonInput = qs('#holdReason');
 const holdCriticalInput = qs('#holdCritical');
+const postponeReasonInput = qs('#postponeReason');
 
 let socket;
 let socketConnected = false;
@@ -65,6 +66,8 @@ function renderTaskMeta() {
   if (task.started_at) parts.push(`старт: ${new Date(task.started_at).toLocaleString()}`);
   if (task.ended_at) parts.push(`фініш: ${new Date(task.ended_at).toLocaleString()}`);
   if (task.hold_reason) parts.push(`причина: ${task.hold_reason}`);
+  if (task.postponed_reason) parts.push(`перенос: ${task.postponed_reason}`);
+  if (task.postponed_over_shift) parts.push('перенос > 1 зміни');
   if (task.is_critical) parts.push('критично');
   taskStatusMeta.textContent = parts.join(' · ');
 }
@@ -253,6 +256,7 @@ function renderTasks() {
       <span class="secondary">${task.building_address ?? 'Адреса невідома'}</span>
       <span class="secondary">${task.description ?? 'Опис недоступний'}</span>
       <small class="secondary">Статус: ${task.status}</small>
+      ${task.is_postponed ? `<small class="secondary${task.postponed_over_shift ? ' postpone-alert' : ''}">Перенос: ${task.postponed_reason || 'без причини'}</small>` : ''}
     `;
     card.addEventListener('click', () => {
       state.currentTaskId = task.id;
@@ -542,6 +546,11 @@ window.addEventListener('DOMContentLoaded', async () => {
     const reason = holdReasonInput.value.trim();
     if (!reason) return;
     updateTaskStatus('hold', { reason, is_critical: holdCriticalInput.checked });
+  });
+  qs('#postponeTask').addEventListener('click', () => {
+    const reason = postponeReasonInput.value.trim();
+    if (!reason) return;
+    updateTaskStatus('postpone', { reason });
   });
   flushQueue().catch((error) => console.warn('initial queue flush failed', error));
   window.addEventListener('online', updateSignalStrength);

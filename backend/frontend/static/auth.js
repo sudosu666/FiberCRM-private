@@ -90,6 +90,7 @@ const FiberAuth = (() => {
 
   function routeForRoles(user) {
     const roles = new Set((user?.roles || []).map((role) => String(role)));
+    if (roles.has('ConnectionDispatcher')) return '/connections-dispatch';
     if (roles.has('Dispatcher')) return '/dispatcher';
     if (roles.has('Designer')) return '/designer';
     if (roles.has('Warehouse')) return '/warehouse';

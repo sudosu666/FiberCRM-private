@@ -22,6 +22,7 @@ from sqlmodel import Field, Relationship, SQLModel
 class UserRole(str, Enum):
     Designer = "Designer"
     Dispatcher = "Dispatcher"
+    ConnectionDispatcher = "ConnectionDispatcher"
     Builder = "Builder"
     Welder = "Welder"
     Connector = "Connector"
@@ -74,6 +75,22 @@ class RequestStatus(str, Enum):
     fulfilled = "fulfilled"
     partial = "partial"
     rejected = "rejected"
+
+
+class SubscriberRequestStatus(str, Enum):
+    new = "new"
+    scheduled = "scheduled"
+    in_progress = "in_progress"
+    completed = "completed"
+    postponed = "postponed"
+    canceled = "canceled"
+    no_access = "no_access"
+    technical_issue = "technical_issue"
+
+
+class ArrivalWindow(str, Enum):
+    before_lunch = "before_lunch"
+    after_lunch = "after_lunch"
 
 
 class User(SQLModel, table=True):
@@ -145,6 +162,8 @@ class Building(SQLModel, table=True):
     tender_id: UUID = Field(foreign_key="tenders.id")
     address: str = Field(nullable=False)
     city: Optional[str] = None
+    servicing_org_name: Optional[str] = None
+    servicing_org_phone: Optional[str] = Field(default=None, sa_column=Column(String(100), nullable=True))
     entrances_count: int = Field(nullable=False)
     floors_count: int = Field(nullable=False)
     flats_per_floor: int = Field(nullable=False)
@@ -162,6 +181,9 @@ class Building(SQLModel, table=True):
     tender: Tender = Relationship(back_populates="buildings")
     tasks: list["Task"] = Relationship(back_populates="building")
     panels: list["Panel"] = Relationship(back_populates="building")
+    notes: list["BuildingNote"] = Relationship(back_populates="building", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
+    subscriber_requests: list["SubscriberRequest"] = Relationship(back_populates="building", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
+    comments: list["OpsComment"] = Relationship(back_populates="building", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
 
 
 class Muffle(SQLModel, table=True):
@@ -232,6 +254,8 @@ class Task(SQLModel, table=True):
     estimated_hours: Optional[float] = None
     is_critical: bool = Field(default=False)
     hold_reason: Optional[str] = None
+    postponed_reason: Optional[str] = None
+    postponed_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     assigned_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
@@ -242,6 +266,8 @@ class Task(SQLModel, table=True):
     brigade: Optional[Brigade] = Relationship(back_populates="tasks")
     steps: list["TaskStep"] = Relationship(back_populates="task", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
     reports: list["TaskReport"] = Relationship(back_populates="task", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
+    contacts: list["OpsContact"] = Relationship(back_populates="task", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
+    comments: list["OpsComment"] = Relationship(back_populates="task", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
 
 
 class TaskStep(SQLModel, table=True):
@@ -319,7 +345,7 @@ class WarehouseRequest(SQLModel, table=True):
     fulfilled_at: Optional[datetime] = None
 
     items: list["WarehouseRequestItem"] = Relationship(back_populates="request", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
-    building: Optional[Building] = Relationship()
+    building: Optional[Building] = Relationship(back_populates="comments")
 
 
 class WarehouseRequestItem(SQLModel, table=True):
@@ -349,6 +375,86 @@ class ClientConnection(SQLModel, table=True):
 
     port: Port = Relationship()
     task: Optional[Task] = Relationship()
+
+
+class SubscriberRequest(SQLModel, table=True):
+    __tablename__ = "subscriber_requests"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    building_id: UUID = Field(foreign_key="buildings.id", nullable=False)
+    flat_number: int = Field(nullable=False)
+    customer_name: str = Field(nullable=False)
+    phone: str = Field(sa_column=Column(String(20), nullable=False))
+    notes: Optional[str] = None
+    postponed_reason: Optional[str] = None
+    postponed_at: Optional[datetime] = None
+    status: SubscriberRequestStatus = Field(
+        sa_column=Column(PgEnum(SubscriberRequestStatus, name="subscriber_request_status")),
+        default=SubscriberRequestStatus.new,
+    )
+    registered_at: datetime = Field(default_factory=datetime.utcnow)
+    deadline_at: datetime = Field(sa_column=Column(DateTime, nullable=False))
+    scheduled_date: Optional[date] = Field(default=None, sa_column=Column(Date, nullable=True))
+    arrival_window: Optional[ArrivalWindow] = Field(
+        default=None,
+        sa_column=Column(PgEnum(ArrivalWindow, name="arrival_window"), nullable=True),
+    )
+    assigned_user_id: Optional[UUID] = Field(default=None, foreign_key="users.id")
+    completed_at: Optional[datetime] = None
+
+    building: Building = Relationship(back_populates="subscriber_requests")
+    assigned_user: Optional[User] = Relationship()
+    contacts: list["OpsContact"] = Relationship(back_populates="subscriber_request", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
+    comments: list["OpsComment"] = Relationship(back_populates="subscriber_request", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
+
+
+class OpsContact(SQLModel, table=True):
+    __tablename__ = "ops_contacts"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    task_id: Optional[UUID] = Field(default=None, foreign_key="tasks.id")
+    subscriber_request_id: Optional[UUID] = Field(default=None, foreign_key="subscriber_requests.id")
+    title: str = Field(nullable=False)
+    full_name: Optional[str] = None
+    phone: str = Field(sa_column=Column(String(50), nullable=False))
+    notes: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    task: Optional[Task] = Relationship(back_populates="contacts")
+    subscriber_request: Optional[SubscriberRequest] = Relationship(back_populates="contacts")
+
+
+class OpsComment(SQLModel, table=True):
+    __tablename__ = "ops_comments"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    building_id: Optional[UUID] = Field(default=None, foreign_key="buildings.id")
+    task_id: Optional[UUID] = Field(default=None, foreign_key="tasks.id")
+    subscriber_request_id: Optional[UUID] = Field(default=None, foreign_key="subscriber_requests.id")
+    author_id: Optional[UUID] = Field(default=None, foreign_key="users.id")
+    comment_type: str = Field(default="note", sa_column=Column(String(50), nullable=False))
+    body: str = Field(nullable=False)
+    role_tags: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    building: Optional[Building] = Relationship()
+    task: Optional[Task] = Relationship(back_populates="comments")
+    subscriber_request: Optional[SubscriberRequest] = Relationship(back_populates="comments")
+    author: Optional[User] = Relationship()
+
+
+class BuildingNote(SQLModel, table=True):
+    __tablename__ = "building_notes"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    building_id: UUID = Field(foreign_key="buildings.id", nullable=False)
+    author_id: Optional[UUID] = Field(default=None, foreign_key="users.id")
+    body: str = Field(nullable=False)
+    role_tags: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    building: Building = Relationship(back_populates="notes")
+    author: Optional[User] = Relationship()
 
 
 class Message(SQLModel, table=True):

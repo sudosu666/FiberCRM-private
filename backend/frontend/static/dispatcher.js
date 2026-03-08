@@ -3,9 +3,12 @@
 const state = {
   tasks: [],
   brigades: [],
+  buildings: [],
   timeline: [],
   events: [],
   workers: [],
+  stats: null,
+  workerStats: [],
 };
 
 const icons = {
@@ -63,15 +66,66 @@ async function createGroup(payload) {
   });
 }
 
+async function createBuildingNote(buildingId, payload) {
+  await readJson(`/api/buildings/${buildingId}/notes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+function buildFilterQuery() {
+  const params = new URLSearchParams();
+  const search = el('filterSearch')?.value?.trim();
+  const status = el('filterStatus')?.value;
+  const taskType = el('filterType')?.value;
+  const brigadeId = el('filterBrigade')?.value;
+  const city = el('filterCity')?.value;
+  const criticalOnly = el('filterCritical')?.checked;
+  if (search) params.set('search', search);
+  if (status) params.set('status', status);
+  if (taskType) params.set('task_type', taskType);
+  if (brigadeId) params.set('brigade_id', brigadeId);
+  if (city) params.set('city', city);
+  if (criticalOnly) params.set('critical_only', 'true');
+  return params.toString();
+}
+
+function applyTaskFilters(tasks) {
+  const search = el('filterSearch')?.value?.trim().toLowerCase();
+  const status = el('filterStatus')?.value;
+  const taskType = el('filterType')?.value;
+  const brigadeId = el('filterBrigade')?.value;
+  const city = el('filterCity')?.value?.trim().toLowerCase();
+  const criticalOnly = el('filterCritical')?.checked;
+  return tasks.filter((task) => {
+    if (search) {
+      const haystack = [
+        task.building_address || '',
+        task.description || '',
+        task.brigade_name || '',
+      ].join(' ').toLowerCase();
+      if (!haystack.includes(search)) return false;
+    }
+    if (status && task.status !== status) return false;
+    if (taskType && task.type !== taskType) return false;
+    if (brigadeId && task.brigade_id !== brigadeId) return false;
+    if (city && !(task.building_address || '').toLowerCase().includes(city)) return false;
+    if (criticalOnly && !task.is_critical) return false;
+    return true;
+  });
+}
+
 function renderTasks() {
   const mount = el('tasksList');
-  if (!state.tasks.length) {
+  const tasks = applyTaskFilters(state.tasks);
+  if (!tasks.length) {
     mount.innerHTML = '<p class="placeholder">Задач поки немає</p>';
     return;
   }
-  mount.innerHTML = state.tasks.map((task) => {
+  mount.innerHTML = tasks.map((task) => {
     const hasBrigade = Boolean(task.brigade_name);
-    const itemClass = `${task.is_critical ? 'critical ' : ''}${task.status === 'on_hold' ? 'on_hold' : ''}`.trim();
+    const itemClass = `${task.is_critical ? 'critical ' : ''}${task.status === 'on_hold' ? 'on_hold ' : ''}${task.postponed_over_shift ? 'postponed-over-shift' : ''}`.trim();
     return `
       <article class="item ${itemClass}" draggable="true" data-task-id="${task.id}">
         <div class="row">
@@ -80,7 +134,8 @@ function renderTasks() {
         </div>
         <p class="sub">${task.description || 'Опис не вказаний'}</p>
         <p class="sub">Бригада: ${task.brigade_name || 'не призначена'} · ${task.estimated_hours || 0} год</p>
-        <p class="sub">${task.hold_reason ? `Причина: ${task.hold_reason}` : ''}${task.is_critical ? ' КРИТИЧНО' : ''}</p>
+        <p class="sub">Лінії: підключено ${task.connected_lines || 0} · резерв ${task.reserved_lines || 0} · незатребувано ${task.unclaimed_lines || 0}</p>
+        <p class="sub">${task.is_postponed ? `Перенос: ${task.postponed_reason || 'без причини'}` : (task.hold_reason ? `Причина: ${task.hold_reason}` : '')}${task.postponed_over_shift ? ' · > 1 зміни' : ''}${task.is_critical ? ' КРИТИЧНО' : ''}</p>
         <div class="assign-row">
           <select id="assign-${task.id}">
             ${state.brigades.map((b) => `<option value="${b.id}">${b.name}</option>`).join('')}
@@ -117,6 +172,186 @@ function renderTasks() {
     });
     card.addEventListener('dragend', () => card.classList.remove('dragging'));
   });
+}
+
+function applyBuildingFilters(buildings) {
+  const search = el('buildingSearch')?.value?.trim().toLowerCase();
+  if (!search) {
+    return buildings;
+  }
+  return buildings.filter((building) => {
+    const taggedNotes = (building.notes || []).map((note) => {
+      const tags = (note.role_tags || []).join(' ');
+      return `${note.body || ''} ${tags}`;
+    }).join(' ');
+    const haystack = [
+      building.address || '',
+      building.city || '',
+      building.infrastructure_status || '',
+      taggedNotes,
+    ].join(' ').toLowerCase();
+    return haystack.includes(search);
+  });
+}
+
+function roleTagOptions(selectedTags = []) {
+  const roles = ['Dispatcher', 'ConnectionDispatcher', 'Designer', 'Builder', 'Welder', 'Connector', 'Warehouse'];
+  return roles.map((role) => (
+    `<label class="role-pick"><input type="checkbox" data-note-role="${role}" ${selectedTags.includes(role) ? 'checked' : ''}> ${role}</label>`
+  )).join('');
+}
+
+function renderBuildings() {
+  const mount = el('buildingsList');
+  const buildings = applyBuildingFilters(state.buildings);
+  if (!buildings.length) {
+    mount.innerHTML = '<p class="placeholder">Будинки не знайдено</p>';
+    return;
+  }
+  mount.innerHTML = buildings.map((building) => `
+    <article class="item building-item">
+      <div class="row">
+        <p class="title">${building.address}</p>
+        <span class="tag ${building.unclaimed_lines > 0 ? 'pending' : 'completed'}">незатребувано ${building.unclaimed_lines || 0}</span>
+      </div>
+      <p class="sub">${building.city || 'місто не вказано'} · статус ${building.infrastructure_status}</p>
+      <p class="sub">Лінії: підключено ${building.connected_lines || 0} · резерв ${building.reserved_lines || 0} · незатребувано ${building.unclaimed_lines || 0}</p>
+      <p class="sub">План: ${building.metrics?.total_flats || 0} квартир · ${building.metrics?.panels_count || 0} щитків · ${building.metrics?.planned_cable_meters || 0} м кабелю</p>
+      <div class="note-list">
+        ${(building.notes || []).length ? building.notes.map((note) => `
+          <article class="note-item">
+            <div class="row">
+              <p class="title">${note.author_name || 'система'}</p>
+              <span class="meta">${new Date(note.created_at).toLocaleString()}</span>
+            </div>
+            <p class="sub">${note.body}</p>
+            <p class="sub">${(note.role_tags || []).length ? `Для ролей: ${note.role_tags.join(', ')}` : 'Для всіх ролей'}</p>
+          </article>
+        `).join('') : '<p class="placeholder">Нотаток ще немає</p>'}
+      </div>
+      <div class="stack note-form">
+        <textarea id="note-body-${building.building_id}" rows="3" placeholder="Додати нотатку по будинку: ризики, доступ, нюанси підключення"></textarea>
+        <div class="roles-grid note-role-grid" data-note-tags="${building.building_id}">
+          ${roleTagOptions()}
+        </div>
+        <button type="button" data-save-note="${building.building_id}">Зберегти нотатку</button>
+      </div>
+    </article>
+  `).join('');
+
+  mount.querySelectorAll('button[data-save-note]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const buildingId = button.getAttribute('data-save-note');
+      const body = el(`note-body-${buildingId}`)?.value?.trim();
+      const selectedRoles = Array.from(
+        mount.querySelectorAll(`[data-note-tags="${buildingId}"] input[data-note-role]:checked`)
+      ).map((input) => input.getAttribute('data-note-role')).filter(Boolean);
+      if (!body) {
+        return;
+      }
+      button.disabled = true;
+      try {
+        await createBuildingNote(buildingId, { body, role_tags: selectedRoles });
+        pushEvent(`Нотатка додана для будинку ${buildingId.slice(0, 8)}`);
+        await loadBuildings();
+      } catch (error) {
+        console.error(error);
+        button.disabled = false;
+      }
+    });
+  });
+}
+
+function renderStats() {
+  const stats = state.stats;
+  const cards = el('statsCards');
+  const breakdown = el('statsBreakdown');
+  if (!stats) {
+    cards.innerHTML = '<p class="placeholder">Аналітика недоступна</p>';
+    breakdown.innerHTML = '';
+    return;
+  }
+  cards.innerHTML = [
+    ['Всього задач', stats.total_tasks],
+    ['Pending', stats.pending_tasks],
+    ['В роботі', stats.in_progress_tasks],
+    ['On hold', stats.on_hold_tasks],
+    ['Критичні', stats.critical_tasks],
+    ['Без бригади', stats.unassigned_tasks],
+    ['Години всього', stats.total_estimated_hours],
+    ['Середній ETA', stats.avg_estimated_hours],
+  ].map(([label, value]) => `
+    <article class="stat-card">
+      <p class="sub">${label}</p>
+      <p class="stat-value">${value}</p>
+    </article>
+  `).join('');
+
+  breakdown.innerHTML = stats.type_breakdown.map((row) => `
+    <article class="item">
+      <div class="row">
+        <p class="title">${row.type}</p>
+        <span class="meta">всього ${row.total}</span>
+      </div>
+      <p class="sub">pending ${row.pending} · assigned ${row.assigned} · in_progress ${row.in_progress}</p>
+      <p class="sub">on_hold ${row.on_hold} · completed ${row.completed}</p>
+    </article>
+  `).join('');
+
+  const brigadeSelect = el('filterBrigade');
+  const selectedBrigade = brigadeSelect.value;
+  brigadeSelect.innerHTML = '<option value="">Всі бригади</option>' + stats.brigade_options.map((option) => (
+    `<option value="${option.value}">${option.label}</option>`
+  )).join('');
+  brigadeSelect.value = selectedBrigade;
+
+  const citySelect = el('filterCity');
+  const selectedCity = citySelect.value;
+  citySelect.innerHTML = '<option value="">Всі міста</option>' + stats.city_options.map((option) => (
+    `<option value="${option.value}">${option.label}</option>`
+  )).join('');
+  citySelect.value = selectedCity;
+}
+
+async function loadStats() {
+  const query = buildFilterQuery();
+  state.stats = await readJson(`/api/dispatch/stats${query ? `?${query}` : ''}`);
+  renderStats();
+}
+
+function renderWorkerStats() {
+  const mount = el('workerStats');
+  if (!state.workerStats.length) {
+    mount.innerHTML = '<p class="placeholder">Немає даних по працівниках</p>';
+    return;
+  }
+  mount.innerHTML = state.workerStats.map((worker) => `
+    <article class="item">
+      <div class="row">
+        <p class="title">${worker.name}</p>
+        <span class="meta">${worker.role}</span>
+      </div>
+      <p class="sub">Бригада: ${worker.brigade_name || 'не призначена'}</p>
+      <p class="sub">assigned ${worker.assigned_tasks} · in_progress ${worker.in_progress_tasks} · completed ${worker.completed_tasks}</p>
+      <p class="sub">steps ${worker.completed_steps} · photos ${worker.photo_reports} · holds ${worker.on_hold_events}</p>
+      <p class="sub">worklog ${worker.worklog_entries} · quantity ${worker.total_logged_quantity}</p>
+    </article>
+  `).join('');
+}
+
+async function loadWorkerStats() {
+  const params = new URLSearchParams();
+  const brigadeId = el('filterBrigade')?.value;
+  const search = el('filterSearch')?.value?.trim();
+  if (brigadeId) params.set('brigade_id', brigadeId);
+  if (search) params.set('search', search);
+  state.workerStats = await readJson(`/api/dispatch/workers/stats${params.toString() ? `?${params}` : ''}`);
+  renderWorkerStats();
+}
+
+async function loadBuildings() {
+  state.buildings = await readJson('/api/buildings');
+  renderBuildings();
 }
 
 function renderBrigades() {
@@ -212,21 +447,26 @@ function renderEvents() {
 }
 
 async function loadAll() {
-  const [tasks, brigades, timeline, workers] = await Promise.all([
+  const [tasks, brigades, timeline, workers, buildings] = await Promise.all([
     readJson('/api/tasks'),
     readJson('/api/brigades'),
     readJson('/api/timeline'),
     readJson('/api/field/workers'),
+    readJson('/api/buildings'),
   ]);
   state.tasks = tasks;
   state.brigades = brigades;
+  state.buildings = buildings;
   state.timeline = timeline;
   state.workers = workers;
   renderTasks();
+  renderBuildings();
   renderBrigades();
   renderTimeline();
   renderWorkersPicker();
   await loadUsers();
+  await loadStats();
+  await loadWorkerStats();
 }
 
 function roleCheckbox(role, user) {
@@ -250,12 +490,12 @@ function renderUsers(users) {
       <p class="sub">${user.phone}${user.email ? ` · ${user.email}` : ''}</p>
       <div class="role-editor">
         <select data-user-role="${user.id}">
-          ${['Dispatcher', 'Designer', 'Builder', 'Welder', 'Connector', 'Warehouse'].map((role) => `<option value="${role}" ${user.role === role ? 'selected' : ''}>${role}</option>`).join('')}
+          ${['Dispatcher', 'ConnectionDispatcher', 'Designer', 'Builder', 'Welder', 'Connector', 'Warehouse'].map((role) => `<option value="${role}" ${user.role === role ? 'selected' : ''}>${role}</option>`).join('')}
         </select>
         <label class="role-pick"><input type="checkbox" data-user-active="${user.id}" ${user.is_active ? 'checked' : ''}> active</label>
       </div>
       <div class="roles-grid" data-user-extra="${user.id}">
-        ${['Dispatcher', 'Designer', 'Builder', 'Welder', 'Connector', 'Warehouse'].map((role) => roleCheckbox(role, user)).join('')}
+        ${['Dispatcher', 'ConnectionDispatcher', 'Designer', 'Builder', 'Welder', 'Connector', 'Warehouse'].map((role) => roleCheckbox(role, user)).join('')}
       </div>
       <button type="button" data-save-user="${user.id}">Зберегти роль</button>
     </article>
@@ -362,6 +602,12 @@ async function boot() {
     throw error;
   }
   el('refreshTasks').addEventListener('click', () => loadAll().catch(console.error));
+  el('applyFilters')?.addEventListener('click', async () => {
+    await loadStats();
+    await loadWorkerStats();
+    renderTasks();
+  });
+  el('buildingSearch')?.addEventListener('input', () => renderBuildings());
   el('refreshUsers')?.addEventListener('click', () => loadUsers().catch(console.error));
   el('createGroup').addEventListener('click', async () => {
     const name = el('groupName').value.trim();

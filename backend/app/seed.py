@@ -28,7 +28,18 @@ from .models import (
 
 async def seed_demo_data(session: AsyncSession) -> None:
     existing = await session.scalar(select(func.count()).select_from(Tender))
+    connection_dispatcher_existing = await session.scalar(select(User).where(User.phone == '+38000000007'))
     if existing and existing > 0:
+        if not connection_dispatcher_existing:
+            session.add(User(
+                name='Назар Диспетчер Підключень',
+                phone='+38000000007',
+                email='connection.dispatch@fiberops.local',
+                role=UserRole.Dispatcher,
+                additional_roles='ConnectionDispatcher',
+                password_hash=get_password_hash('connect-dispatch'),
+            ))
+            await session.commit()
         return
 
     dispatcher = User(
@@ -74,7 +85,15 @@ async def seed_demo_data(session: AsyncSession) -> None:
         role=UserRole.Warehouse,
         password_hash=get_password_hash('warehouse'),
     )
-    session.add_all([dispatcher, designer, builder, welder, connector, warehouse])
+    connection_dispatcher = User(
+        name='Назар Диспетчер Підключень',
+        phone='+38000000007',
+        email='connection.dispatch@fiberops.local',
+        role=UserRole.Dispatcher,
+        additional_roles='ConnectionDispatcher',
+        password_hash=get_password_hash('connect-dispatch'),
+    )
+    session.add_all([dispatcher, designer, builder, welder, connector, warehouse, connection_dispatcher])
     await session.flush()
 
     tender = Tender(

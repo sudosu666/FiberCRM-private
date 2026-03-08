@@ -12,3 +12,4 @@ for _ in $(seq 1 60); do
 done
 
 pytest -q tests/e2e/api tests/e2e/realtime
+pytest -q tests/e2e/ui

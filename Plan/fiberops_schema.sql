@@ -4,14 +4,16 @@
 -- ═══════════════════════════════════════════════════════════════════
 
 -- ── ENUM ТИПИ ────────────────────────────────────────────────────
-CREATE TYPE user_role        AS ENUM ('Designer', 'Dispatcher', 'Builder', 'Welder', 'Connector', 'Warehouse');
+CREATE TYPE user_role        AS ENUM ('Designer', 'Dispatcher', 'ConnectionDispatcher', 'Builder', 'Welder', 'Connector', 'Warehouse');
 CREATE TYPE tender_status    AS ENUM ('new', 'planning', 'in_progress', 'completed');
 CREATE TYPE task_type        AS ENUM ('construction', 'welding', 'connection');
-CREATE TYPE task_status      AS ENUM ('pending', 'assigned', 'in_progress', 'completed', 'canceled');
+CREATE TYPE task_status      AS ENUM ('pending', 'assigned', 'in_progress', 'on_hold', 'completed', 'canceled');
 CREATE TYPE fiber_status     AS ENUM ('free', 'reserved', 'busy');
 CREATE TYPE port_status      AS ENUM ('free', 'reserved', 'active', 'faulty');
 CREATE TYPE infra_status     AS ENUM ('planned', 'in_progress', 'completed');
 CREATE TYPE request_status   AS ENUM ('pending', 'fulfilled', 'partial', 'rejected');
+CREATE TYPE subscriber_request_status AS ENUM ('new', 'scheduled', 'in_progress', 'completed', 'postponed', 'canceled', 'no_access', 'technical_issue');
+CREATE TYPE arrival_window AS ENUM ('before_lunch', 'after_lunch');
 
 
 -- ═══════════════════════════════════════════════════════════════════
@@ -24,6 +26,7 @@ CREATE TABLE users (
     phone        VARCHAR(20) UNIQUE,
     email        VARCHAR(150) UNIQUE,
     role         user_role NOT NULL,
+    additional_roles TEXT,
     password_hash TEXT NOT NULL,
     is_active    BOOLEAN DEFAULT TRUE,
     created_at   TIMESTAMP DEFAULT NOW()
@@ -33,7 +36,7 @@ CREATE TABLE brigades (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name         VARCHAR(100) NOT NULL,          -- "Бригада Б-1"
     type         task_type NOT NULL,             -- construction / welding / connection
-    foreman_id   UUID REFERENCES users(id),      -- бригадир
+    foreman_id   UUID REFERENCES users(id),      -- legacy-поле, поточна цільова модель зменшує його значення
     is_active    BOOLEAN DEFAULT TRUE
 );
 
@@ -67,6 +70,8 @@ CREATE TABLE buildings (
     -- Адреса
     address               TEXT NOT NULL,
     city                  VARCHAR(100),
+    servicing_org_name    VARCHAR(150),          -- ЖЕК / ОСББ / керуюча компанія
+    servicing_org_phone   VARCHAR(100),
 
     -- Параметри будинку (вводяться вручну проектувальником)
     entrances_count       INT NOT NULL,
@@ -159,9 +164,13 @@ CREATE TABLE tasks (
 
     description   TEXT,
     estimated_hours FLOAT,
+    is_critical   BOOLEAN DEFAULT FALSE,
+    hold_reason   TEXT,
 
     created_at    TIMESTAMP DEFAULT NOW(),
     assigned_at   TIMESTAMP,
+    started_at    TIMESTAMP,
+    ended_at      TIMESTAMP,
     completed_at  TIMESTAMP
 );
 
@@ -201,6 +210,22 @@ CREATE TABLE client_connections (
     status        VARCHAR(30) DEFAULT 'pending', -- pending/active/suspended
     connected_at  TIMESTAMP,
     task_id       UUID REFERENCES tasks(id)      -- задача підключення
+);
+
+CREATE TABLE subscriber_requests (
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    building_id       UUID REFERENCES buildings(id) ON DELETE CASCADE,
+    flat_number       INT NOT NULL,
+    customer_name     VARCHAR(200) NOT NULL,
+    phone             VARCHAR(20) NOT NULL,
+    notes             TEXT,
+    status            subscriber_request_status DEFAULT 'new',
+    registered_at     TIMESTAMP DEFAULT NOW(),
+    deadline_at       TIMESTAMP NOT NULL,
+    scheduled_date    DATE,
+    arrival_window    arrival_window,
+    assigned_user_id  UUID REFERENCES users(id),
+    completed_at      TIMESTAMP
 );
 
 
@@ -244,6 +269,34 @@ CREATE TABLE warehouse_request_items (
     stock_item_id UUID REFERENCES stock_items(id),
     planned_qty   FLOAT NOT NULL,                  -- скільки запросили
     fulfilled_qty FLOAT                            -- скільки фактично видали
+);
+
+
+-- ═══════════════════════════════════════════════════════════════════
+-- ОПЕРАЦІЙНІ КОМЕНТАРІ ТА КОНТАКТИ
+-- ═══════════════════════════════════════════════════════════════════
+
+CREATE TABLE ops_contacts (
+    id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_id                UUID REFERENCES tasks(id) ON DELETE CASCADE,
+    subscriber_request_id  UUID REFERENCES subscriber_requests(id) ON DELETE CASCADE,
+    title                  VARCHAR(120) NOT NULL, -- "ЖЕК", "ОСББ", "Консьєрж", "Клієнт"
+    full_name              VARCHAR(200),
+    phone                  VARCHAR(50) NOT NULL,
+    notes                  TEXT,
+    created_at             TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE ops_comments (
+    id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    building_id            UUID REFERENCES buildings(id) ON DELETE CASCADE,
+    task_id                UUID REFERENCES tasks(id) ON DELETE CASCADE,
+    subscriber_request_id  UUID REFERENCES subscriber_requests(id) ON DELETE CASCADE,
+    author_id              UUID REFERENCES users(id),
+    comment_type           VARCHAR(50) NOT NULL,  -- note/design_note/postpone/warning/access_note
+    body                   TEXT NOT NULL,
+    role_tags              TEXT,
+    created_at             TIMESTAMP DEFAULT NOW()
 );
 
 
@@ -294,6 +347,13 @@ CREATE INDEX idx_tasks_building       ON tasks(building_id);
 CREATE INDEX idx_tasks_brigade        ON tasks(brigade_id);
 CREATE INDEX idx_tasks_status         ON tasks(status);
 CREATE INDEX idx_task_steps_task      ON task_steps(task_id);
+CREATE INDEX idx_subscriber_req_building ON subscriber_requests(building_id);
+CREATE INDEX idx_subscriber_req_status   ON subscriber_requests(status);
+CREATE INDEX idx_ops_contacts_task       ON ops_contacts(task_id);
+CREATE INDEX idx_ops_contacts_subscriber ON ops_contacts(subscriber_request_id);
+CREATE INDEX idx_ops_comments_building   ON ops_comments(building_id);
+CREATE INDEX idx_ops_comments_task       ON ops_comments(task_id);
+CREATE INDEX idx_ops_comments_subscriber ON ops_comments(subscriber_request_id);
 CREATE INDEX idx_messages_task        ON messages(task_id);
 CREATE INDEX idx_notifications_user   ON notifications(user_id, is_read);
 CREATE INDEX idx_stock_tx_item        ON stock_transactions(stock_item_id);

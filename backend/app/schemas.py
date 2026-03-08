@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class UserRole(str, Enum):
     Designer = 'Designer'
     Dispatcher = 'Dispatcher'
+    ConnectionDispatcher = 'ConnectionDispatcher'
     Builder = 'Builder'
     Welder = 'Welder'
     Connector = 'Connector'
@@ -234,6 +235,15 @@ class TaskQueueItem(BaseModel):
     started_at: Optional[datetime] = None
     ended_at: Optional[datetime] = None
     metrics: BuildingMetrics
+    connected_lines: int = 0
+    reserved_lines: int = 0
+    unclaimed_lines: int = 0
+    is_postponed: bool = False
+    postponed_reason: Optional[str] = None
+    postponed_at: Optional[datetime] = None
+    postponed_over_shift: bool = False
+    contacts: List["OpsContactRead"] = Field(default_factory=list)
+    comments: List[OpsCommentRead] = Field(default_factory=list)
     status_changed_at: Optional[datetime] = None
 
 
@@ -252,6 +262,10 @@ class TaskStatusEventRead(BaseModel):
 class TaskHoldRequest(BaseModel):
     reason: str = Field(min_length=3)
     is_critical: bool = False
+
+
+class TaskPostponeRequest(BaseModel):
+    reason: str = Field(min_length=3)
 
 
 class WorkLogRead(BaseModel):
@@ -413,7 +427,48 @@ class NetworkOverview(BaseModel):
 class BuildingNetworkRead(BaseModel):
     id: UUID
     address: str
+    city: Optional[str] = None
+    servicing_org_name: Optional[str] = None
+    servicing_org_phone: Optional[str] = None
     metrics: BuildingMetrics
+    connected_lines: int = 0
+    reserved_lines: int = 0
+    unclaimed_lines: int = 0
+    comments: List[OpsCommentRead] = Field(default_factory=list)
+
+
+class BuildingNoteCreate(BaseModel):
+    body: str = Field(min_length=1)
+    role_tags: List[UserRole] = Field(default_factory=list)
+
+
+class BuildingNoteRead(BaseModel):
+    id: UUID
+    building_id: UUID
+    author_id: Optional[UUID]
+    author_name: Optional[str]
+    body: str
+    role_tags: List[UserRole] = Field(default_factory=list)
+    created_at: datetime
+
+
+class OpsCommentCreate(BaseModel):
+    body: str = Field(min_length=1)
+    comment_type: str = Field(default='note', min_length=2)
+    role_tags: List[UserRole] = Field(default_factory=list)
+
+
+class OpsCommentRead(BaseModel):
+    id: UUID
+    building_id: Optional[UUID] = None
+    task_id: Optional[UUID] = None
+    subscriber_request_id: Optional[UUID] = None
+    author_id: Optional[UUID] = None
+    author_name: Optional[str] = None
+    comment_type: str
+    body: str
+    role_tags: List[UserRole] = Field(default_factory=list)
+    created_at: datetime
 
 
 class BuildingCalculateRead(BaseModel):
@@ -458,14 +513,38 @@ class InfrastructureBuildingRead(BaseModel):
     building_id: UUID
     address: str
     city: Optional[str]
+    servicing_org_name: Optional[str] = None
+    servicing_org_phone: Optional[str] = None
     infrastructure_status: str
+    connected_lines: int = 0
+    reserved_lines: int = 0
+    unclaimed_lines: int = 0
     panels: List[InfrastructurePanelRead]
+    notes: List[BuildingNoteRead] = Field(default_factory=list)
+    comments: List[OpsCommentRead] = Field(default_factory=list)
+
+
+class BuildingSummaryRead(BaseModel):
+    building_id: UUID
+    address: str
+    city: Optional[str]
+    servicing_org_name: Optional[str] = None
+    servicing_org_phone: Optional[str] = None
+    infrastructure_status: str
+    metrics: BuildingMetrics
+    connected_lines: int = 0
+    reserved_lines: int = 0
+    unclaimed_lines: int = 0
+    notes: List[BuildingNoteRead] = Field(default_factory=list)
+    comments: List[OpsCommentRead] = Field(default_factory=list)
 
 
 class NetworkPlanCreate(BaseModel):
     tender_id: Optional[UUID] = None
     address: str
     city: Optional[str] = None
+    servicing_org_name: Optional[str] = None
+    servicing_org_phone: Optional[str] = None
     entrances_count: int = Field(ge=1, le=40)
     floors_count: int = Field(ge=1, le=80)
     flats_per_floor: int = Field(ge=1, le=40)
@@ -482,3 +561,137 @@ class NetworkPlanRead(BaseModel):
     task_ids: List[UUID]
     warehouse_request_id: Optional[UUID]
     reserved_fibers: List[int]
+
+
+class DispatchFilterOption(BaseModel):
+    value: str
+    label: str
+
+
+class DispatchStatsTaskTypeBreakdown(BaseModel):
+    type: TaskType
+    total: int
+    pending: int
+    assigned: int
+    in_progress: int
+    on_hold: int
+    completed: int
+
+
+class DispatchStatsRead(BaseModel):
+    total_tasks: int
+    pending_tasks: int
+    assigned_tasks: int
+    in_progress_tasks: int
+    on_hold_tasks: int
+    completed_tasks: int
+    critical_tasks: int
+    unassigned_tasks: int
+    avg_estimated_hours: float
+    total_estimated_hours: float
+    type_breakdown: List[DispatchStatsTaskTypeBreakdown]
+    brigade_options: List[DispatchFilterOption]
+    city_options: List[DispatchFilterOption]
+
+
+class WorkerStatsRead(BaseModel):
+    user_id: UUID
+    name: str
+    phone: str
+    role: UserRole
+    brigade_id: Optional[UUID]
+    brigade_name: Optional[str]
+    assigned_tasks: int
+    in_progress_tasks: int
+    completed_tasks: int
+    on_hold_events: int
+    completed_steps: int
+    photo_reports: int
+    worklog_entries: int
+    total_logged_quantity: float
+
+
+class SubscriberRequestStatus(str, Enum):
+    new = 'new'
+    scheduled = 'scheduled'
+    in_progress = 'in_progress'
+    completed = 'completed'
+    postponed = 'postponed'
+    canceled = 'canceled'
+    no_access = 'no_access'
+    technical_issue = 'technical_issue'
+
+
+class ArrivalWindow(str, Enum):
+    before_lunch = 'before_lunch'
+    after_lunch = 'after_lunch'
+
+
+class SubscriberRequestCreate(BaseModel):
+    building_id: UUID
+    flat_number: int = Field(ge=1)
+    customer_name: str = Field(min_length=2)
+    phone: str = Field(min_length=5)
+    notes: Optional[str] = None
+
+
+class SubscriberRequestSchedule(BaseModel):
+    scheduled_date: date
+    arrival_window: ArrivalWindow
+    assigned_user_id: UUID
+
+
+class SubscriberRequestPostpone(BaseModel):
+    reason: str = Field(min_length=3)
+
+
+class OpsContactCreate(BaseModel):
+    title: str = Field(min_length=2)
+    full_name: Optional[str] = None
+    phone: str = Field(min_length=5)
+    notes: Optional[str] = None
+
+
+class OpsContactRead(BaseModel):
+    id: UUID
+    title: str
+    full_name: Optional[str]
+    phone: str
+    notes: Optional[str]
+    created_at: datetime
+
+
+class SubscriberRequestRead(BaseModel):
+    id: UUID
+    building_id: UUID
+    building_address: str
+    city: Optional[str]
+    flat_number: int
+    customer_name: str
+    phone: str
+    notes: Optional[str]
+    status: SubscriberRequestStatus
+    registered_at: datetime
+    deadline_at: datetime
+    scheduled_date: Optional[date]
+    arrival_window: Optional[ArrivalWindow]
+    assigned_user_id: Optional[UUID]
+    assigned_user_name: Optional[str]
+    is_postponed: bool = False
+    postponed_reason: Optional[str] = None
+    postponed_at: Optional[datetime] = None
+    postponed_over_shift: bool = False
+    connected_lines: int = 0
+    reserved_lines: int = 0
+    unclaimed_lines: int = 0
+    technical_possible: bool = False
+    contacts: List[OpsContactRead] = Field(default_factory=list)
+    comments: List[OpsCommentRead] = Field(default_factory=list)
+
+
+class SubscriberDispatcherSummary(BaseModel):
+    total_requests: int
+    new_requests: int
+    scheduled_requests: int
+    overdue_requests: int
+    technical_blocked: int
