@@ -1,155 +1,110 @@
 <!DOCTYPE html>
 <html lang="uk">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>FiberOps Dispatcher</title>
-  <link rel="stylesheet" href="/static/dispatcher.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FiberOps — Диспетчер</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/main.css">
+<style>
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 20px; }
+  .stat-card { background: var(--surface); padding: 15px; border-radius: 8px; border: 1px solid var(--border); }
+  .task-item { border-bottom: 1px solid var(--border); padding: 10px 0; font-size: 13px; }
+  .task-item:last-child { border-bottom: none; }
+  .stack { display: flex; flex-direction: column; gap: 10px; }
+</style>
 </head>
 <body>
-  <header class="topbar">
-    <div>
-      <p class="kicker">FiberOps CRM</p>
-      <h1>Панель диспетчера</h1>
-    </div>
-    <div class="topbar-side">
-      <nav class="role-nav">
-        <a class="active" href="/dispatcher">Диспетчер</a>
-        <a href="/designer">Проєктувальник</a>
-        <a href="/field">Робочі</a>
-        <a href="/warehouse">Склад</a>
-      </nav>
-      <div class="auth-box">
-        <div>
-          <p id="authUserName" class="auth-name">Гість</p>
-          <p id="authUserRole" class="auth-role">Без авторизації</p>
+
+<div class="app-shell">
+  <!-- Sidebar Container -->
+  <aside class="app-sidebar" id="sidebar-inject"></aside>
+
+  <div class="app-main">
+    <!-- Topbar -->
+    <header class="app-topbar">
+      <div class="flex-row" style="flex:1">
+        <span class="badge badge-success">Диспетчер</span>
+        <h2 style="font-size: 14px; margin-left: 10px;">Диспетчерський пункт</h2>
+      </div>
+      <div class="flex-row">
+        <div id="authUserName" style="font-size: 12px; color: var(--text-secondary)"></div>
+        <button class="btn btn-primary btn-sm" id="refreshTasks">Оновити</button>
+      </div>
+    </header>
+
+    <div class="main-content">
+      <div class="grid-3">
+        <!-- Main Stats & Tasks -->
+        <div class="flex-col" style="grid-column: span 2">
+          <div class="card">
+            <div class="card-header"><span class="card-title">Аналітика та Фільтри</span></div>
+            <div class="grid-2">
+              <div class="field"><input id="filterSearch" type="text" placeholder="Пошук (адреса, бригада...)"></div>
+              <div class="field">
+                <select id="filterStatus">
+                  <option value="">Всі статуси</option>
+                  <option value="pending">Очікування</option>
+                  <option value="assigned">Призначено</option>
+                  <option value="in_progress">В роботі</option>
+                  <option value="completed">Виконано</option>
+                </select>
+              </div>
+            </div>
+            <div id="statsCards" class="stats-grid"></div>
+          </div>
+
+          <div class="card">
+            <div class="card-header"><span class="card-title">Поточні задачі</span></div>
+            <div id="tasksList" class="stack">
+               <p style="color: var(--text-muted); font-size: 12px;">Завантаження задач...</p>
+            </div>
+          </div>
+          
+          <div class="card">
+            <div class="card-header"><span class="card-title">Інфраструктура (будинки)</span></div>
+            <div class="field"><input id="buildingSearch" type="text" placeholder="Пошук будинку..."></div>
+            <div id="buildingsList" class="stack"></div>
+          </div>
         </div>
-        <a id="authLoginLink" href="/login">Login</a>
-        <button id="authLogoutButton" type="button" hidden>Logout</button>
+
+        <!-- Right: Social & Groups -->
+        <div class="flex-col">
+          <div class="card">
+            <div class="card-header"><span class="card-title">Бригади</span></div>
+            <div id="brigadesList" class="stack"></div>
+          </div>
+
+          <div class="card">
+            <div class="card-header"><span class="card-title">Надіслати групу</span></div>
+            <div class="flex-col">
+               <div class="field"><label>Назва</label><input id="groupName" type="text"></div>
+               <div class="field">
+                  <label>Тип</label>
+                  <select id="groupType">
+                    <option value="construction">Будівельна</option>
+                    <option value="welding">Зварювальна</option>
+                  </select>
+               </div>
+               <button class="btn btn-primary btn-sm" id="createGroup">Створити</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header"><span class="card-title">Таймлайн</span></div>
+            <div id="eventFeed" class="stack" style="max-height: 400px; overflow-y: auto; font-size: 11px;"></div>
+          </div>
+        </div>
       </div>
     </div>
-  </header>
+  </div>
+</div>
 
-  <main class="layout">
-    <section class="card card-wide">
-      <div class="card-head">
-        <h2>Аналітика та фільтри</h2>
-        <button id="applyFilters" type="button">Застосувати</button>
-      </div>
-      <div class="filters-grid">
-        <input id="filterSearch" type="text" placeholder="Пошук: адреса, місто, опис, бригада">
-        <select id="filterStatus">
-          <option value="">Всі статуси</option>
-          <option value="pending">pending</option>
-          <option value="assigned">assigned</option>
-          <option value="in_progress">in_progress</option>
-          <option value="on_hold">on_hold</option>
-          <option value="completed">completed</option>
-        </select>
-        <select id="filterType">
-          <option value="">Всі типи</option>
-          <option value="construction">construction</option>
-          <option value="welding">welding</option>
-          <option value="connection">connection</option>
-        </select>
-        <select id="filterBrigade">
-          <option value="">Всі бригади</option>
-        </select>
-        <select id="filterCity">
-          <option value="">Всі міста</option>
-        </select>
-        <label class="toggle-line"><input id="filterCritical" type="checkbox"> Тільки критичні</label>
-      </div>
-      <div id="statsCards" class="stats-grid">
-        <p class="placeholder">Завантаження аналітики...</p>
-      </div>
-      <div id="statsBreakdown" class="stack"></div>
-      <div class="card-head">
-        <h2>Сотрудники</h2>
-      </div>
-      <div id="workerStats" class="stack">
-        <p class="placeholder">Завантаження статистики по працівниках...</p>
-      </div>
-    </section>
-
-    <section class="card">
-      <div class="card-head">
-        <h2>Задачі</h2>
-        <button id="refreshTasks" type="button">Оновити</button>
-      </div>
-      <div id="tasksList" class="stack">
-        <p class="placeholder">Завантаження задач...</p>
-      </div>
-    </section>
-
-    <section class="card card-wide">
-      <div class="card-head">
-        <h2>Будинки, лінії та нотатки</h2>
-        <span class="meta">Незатребувані лінії показують запас під підключення</span>
-      </div>
-      <div class="filters-grid filters-grid-buildings">
-        <input id="buildingSearch" type="text" placeholder="Пошук будинку: адреса, місто, нотатка">
-      </div>
-      <div id="buildingsList" class="stack">
-        <p class="placeholder">Завантаження будинків...</p>
-      </div>
-    </section>
-
-    <section class="card">
-      <div class="card-head">
-        <h2>Бригади</h2>
-        <span id="brigadesCounter" class="meta">0</span>
-      </div>
-      <div class="card-head">
-        <h2>Сформувати групу</h2>
-      </div>
-      <div class="stack">
-        <input id="groupName" type="text" placeholder="Назва групи">
-        <select id="groupType">
-          <option value="construction">Будівельна</option>
-          <option value="welding">Зварювальна</option>
-          <option value="connection">Підключення</option>
-        </select>
-        <select id="groupForeman">
-          <option value="">Бригадир</option>
-        </select>
-        <select id="groupMembers" multiple size="6"></select>
-        <button id="createGroup" type="button">Створити групу</button>
-      </div>
-      <div id="brigadesList" class="stack">
-        <p class="placeholder">Завантаження бригад...</p>
-      </div>
-    </section>
-
-    <section class="card">
-      <div class="card-head">
-        <h2>Таймлайн</h2>
-        <span id="socketState" class="meta warn">Socket: polling</span>
-      </div>
-      <div id="timelineList" class="stack">
-        <p class="placeholder">Завантаження таймлайна...</p>
-      </div>
-      <div class="card-head events-head">
-        <h2>Події / Чат</h2>
-      </div>
-      <div id="eventFeed" class="stack events">
-        <p class="placeholder">Очікування подій...</p>
-      </div>
-    </section>
-
-    <section class="card card-wide">
-      <div class="card-head">
-        <h2>Користувачі та ролі</h2>
-        <button id="refreshUsers" type="button">Оновити</button>
-      </div>
-      <div id="usersList" class="stack">
-        <p class="placeholder">Завантаження користувачів...</p>
-      </div>
-    </section>
-  </main>
-
-  <script src="/static/auth.js"></script>
-  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-  <script src="/static/dispatcher.js"></script>
+<script src="/static/auth.js"></script>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script src="/static/dispatcher.js"></script>
+<script src="/static/sidebar.js"></script>
 </body>
 </html>

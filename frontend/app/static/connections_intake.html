@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FiberOps — Заявки на підключення</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#0b0e13; --s1:#111620; --s2:#161d2a;
+  --b1:#1e2d42; --b2:#253548;
+  --text:#cdd8e8; --muted:#5a7390;
+  --accent:#0ea5e9; --green:#22c55e; --amber:#f59e0b; --red:#ef4444;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:13px;}
+body::before{content:'';position:fixed;inset:0;z-index:0;
+  background-image:linear-gradient(var(--b1) 1px,transparent 1px),linear-gradient(90deg,var(--b1) 1px,transparent 1px);
+  background-size:48px 48px;opacity:.2;pointer-events:none;}
+.shell{position:relative;z-index:1;display:flex;height:100vh;overflow:hidden;}
+
+/* sidebar */
+.sidebar{width:56px;background:var(--s1);border-right:1px solid var(--b1);display:flex;flex-direction:column;align-items:center;padding:16px 0;gap:4px;flex-shrink:0;}
+.logo{width:32px;height:32px;background:var(--accent);display:flex;align-items:center;justify-content:center;font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;color:var(--bg);margin-bottom:20px;}
+.nb{width:40px;height:40px;display:flex;align-items:center;justify-content:center;border:1px solid transparent;border-radius:6px;color:var(--muted);cursor:pointer;transition:all .15s;text-decoration:none;font-size:16px;background:transparent;}
+.nb:hover{color:var(--text);border-color:var(--b2);background:var(--s2);}
+.nb.active{color:var(--accent);border-color:var(--accent);background:rgba(14,165,233,.08);}
+.sep{width:24px;height:1px;background:var(--b1);margin:8px 0;}
+.push{flex:1;}
+
+/* layout */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+.topbar{height:48px;background:var(--s1);border-bottom:1px solid var(--b1);display:flex;align-items:center;gap:12px;padding:0 20px;flex-shrink:0;}
+.tb-title{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;letter-spacing:3px;text-transform:uppercase;}
+.vsep{width:1px;height:20px;background:var(--b2);}
+.tb-sub{font-size:11px;color:var(--muted);}
+.ml{margin-left:auto;}
+.tb-right{display:flex;align-items:center;gap:10px;}
+
+.btn{padding:6px 14px;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:500;letter-spacing:1.5px;text-transform:uppercase;border:1px solid var(--b2);background:transparent;color:var(--text);cursor:pointer;transition:all .15s;}
+.btn:hover{border-color:var(--accent);color:var(--accent);}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--bg);}
+.btn.pri:hover{background:#38bdf8;}
+.btn.sm{padding:4px 10px;font-size:9px;}
+.btn:disabled{opacity:.4;cursor:not-allowed;}
+
+.body{flex:1;display:flex;overflow:hidden;}
+
+/* left: form panel */
+.col-form{width:340px;border-right:1px solid var(--b1);display:flex;flex-direction:column;overflow:hidden;flex-shrink:0;}
+.col-head{padding:10px 14px;border-bottom:1px solid var(--b1);display:flex;align-items:center;gap:8px;background:var(--s1);}
+.ctitle{font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;letter-spacing:3px;text-transform:uppercase;color:var(--muted);flex:1;}
+
+.form-scroll{flex:1;overflow-y:auto;padding:16px;}
+
+.field{margin-bottom:14px;}
+.label{font-size:10px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:5px;display:block;}
+.label span{color:var(--red);margin-left:2px;}
+.input,.select,.textarea{
+  width:100%;background:var(--bg);border:1px solid var(--b2);
+  color:var(--text);padding:8px 10px;
+  font-family:'IBM Plex Sans',sans-serif;font-size:12px;
+}
+.input:focus,.select:focus,.textarea:focus{outline:none;border-color:var(--accent);}
+.input.error{border-color:var(--red);}
+.textarea{resize:vertical;}
+.input-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+
+.form-actions{padding:14px 16px;border-top:1px solid var(--b1);display:flex;gap:8px;justify-content:flex-end;background:var(--s1);flex-shrink:0;}
+
+/* building search results */
+.building-results{background:var(--bg);border:1px solid var(--b2);border-top:none;max-height:160px;overflow-y:auto;display:none;}
+.building-opt{padding:8px 10px;cursor:pointer;font-size:12px;border-bottom:1px solid var(--b1);}
+.building-opt:hover{background:var(--s2);}
+.building-opt .b-addr{font-weight:500;}
+.building-opt .b-meta{font-size:10px;color:var(--muted);}
+.building-selected{padding:8px 10px;background:rgba(14,165,233,.06);border:1px solid rgba(14,165,233,.3);font-size:12px;margin-top:4px;display:none;}
+.building-selected .bs-addr{font-weight:500;color:var(--accent);}
+.building-selected .bs-meta{font-size:10px;color:var(--muted);margin-top:2px;}
+.bs-clear{float:right;font-size:10px;color:var(--muted);cursor:pointer;}
+.bs-clear:hover{color:var(--red);}
+
+/* center: request list */
+.col-list{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+
+.list-filters{padding:8px 14px;border-bottom:1px solid var(--b1);display:flex;gap:6px;background:var(--bg);}
+.fsel{background:var(--s1);border:1px solid var(--b1);color:var(--text);padding:5px 8px;font-family:'IBM Plex Sans',sans-serif;font-size:11px;}
+.fsel:focus{outline:none;border-color:var(--accent);}
+.fsearch{flex:1;background:var(--s1);border:1px solid var(--b1);color:var(--text);padding:5px 10px;font-family:'IBM Plex Sans',sans-serif;font-size:12px;}
+.fsearch:focus{outline:none;border-color:var(--accent);}
+.fsearch::placeholder{color:var(--muted);}
+
+.list-scroll{flex:1;overflow-y:auto;}
+
+/* request table */
+.rtable{width:100%;border-collapse:collapse;}
+.rtable th{padding:7px 16px;text-align:left;font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:500;letter-spacing:2px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--b1);background:var(--s1);position:sticky;top:0;z-index:2;white-space:nowrap;}
+.rtable td{padding:9px 16px;border-bottom:1px solid var(--b1);font-size:12px;vertical-align:middle;}
+.rtable tr:hover td{background:rgba(255,255,255,.015);cursor:pointer;}
+
+.req-name{font-weight:500;}
+.req-flat{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted);}
+.req-phone{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--accent);}
+.req-addr{font-size:11px;color:var(--muted);}
+.req-dl{font-family:'IBM Plex Mono',monospace;font-size:10px;}
+.dl-ok{color:var(--muted);}
+.dl-soon{color:var(--amber);}
+.dl-over{color:var(--red);}
+
+.spill{display:inline-flex;align-items:center;gap:4px;font-family:'IBM Plex Mono',monospace;font-size:9px;padding:2px 7px;border:1px solid;white-space:nowrap;}
+.spill-dot{width:5px;height:5px;border-radius:50%;background:currentColor;}
+.s-new      {color:var(--muted); border-color:var(--b2);}
+.s-sched    {color:var(--accent);border-color:rgba(14,165,233,.3);background:rgba(14,165,233,.06);}
+.s-progress {color:var(--amber); border-color:rgba(245,158,11,.3);background:rgba(245,158,11,.06);}
+.s-done     {color:var(--green); border-color:rgba(34,197,94,.3); background:rgba(34,197,94,.06);}
+.s-postponed{color:var(--muted); border-color:var(--b2);background:var(--s2);}
+.s-no_access{color:var(--red);   border-color:rgba(239,68,68,.3); background:rgba(239,68,68,.04);}
+.s-canceled {color:var(--muted); border-color:var(--b2);background:var(--s2);}
+
+/* right: stats */
+.col-right{width:220px;border-left:1px solid var(--b1);display:flex;flex-direction:column;overflow:hidden;flex-shrink:0;}
+.rscroll{flex:1;overflow-y:auto;padding:10px 12px;}
+.r-sec{font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;letter-spacing:3px;text-transform:uppercase;color:var(--muted);margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--b1);}
+.kpi-stack{display:flex;flex-direction:column;gap:5px;margin-bottom:16px;}
+.kpi{padding:9px 10px;background:var(--s1);border:1px solid var(--b1);position:relative;}
+.kpi::after{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:var(--kc,var(--accent));}
+.kpi-l{font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;}
+.kpi-v{font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:600;color:var(--kc,var(--accent));line-height:1;}
+.kpi-s{font-size:9px;color:var(--muted);margin-top:3px;}
+
+/* modal */
+.modal-overlay{position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.65);display:none;align-items:center;justify-content:center;}
+.modal-overlay.open{display:flex;}
+.modal{background:var(--s1);border:1px solid var(--b2);width:480px;padding:22px;max-height:90vh;overflow-y:auto;}
+.modal-title{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;letter-spacing:2px;text-transform:uppercase;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--b1);}
+.mf{margin-bottom:12px;}
+.ml-label{font-size:10px;color:var(--muted);letter-spacing:1px;margin-bottom:5px;display:block;}
+.minput{width:100%;background:var(--bg);border:1px solid var(--b2);color:var(--text);padding:8px 10px;font-family:'IBM Plex Sans',monospace;font-size:12px;}
+.minput:focus{outline:none;border-color:var(--accent);}
+.mactions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px;}
+
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;color:var(--muted);gap:8px;font-size:12px;text-align:center;}
+.empty-icon{font-size:28px;opacity:.3;}
+
+::-webkit-scrollbar{width:3px;}
+::-webkit-scrollbar-track{background:var(--bg);}
+::-webkit-scrollbar-thumb{background:var(--b2);}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <aside class="sidebar">
+    <div class="logo">F</div>
+    <a class="nb" href="/manager" title="Менеджер">⬡</a>
+    <a class="nb" href="/designer" title="Архітектор">◈</a>
+    <a class="nb" href="/dispatcher" title="Диспетчер">▣</a>
+    <div class="sep"></div>
+    <a class="nb active" href="/connections-intake" title="Заявки клієнтів">◉</a>
+    <a class="nb" href="/connections-dispatch" title="Диспетчер підключень">⊕</a>
+    <a class="nb" href="/warehouse" title="Склад">◎</a>
+    <div class="push"></div>
+    <a class="nb" href="/field" title="Польовий">⬤</a>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <span class="tb-title">FiberOps</span>
+      <div class="vsep"></div>
+      <span class="tb-sub">Заявки на підключення · Введення</span>
+      <div class="ml tb-right">
+        <span id="authUserName" style="font-size:11px;">—</span>
+        <span id="authUserRole" style="font-size:11px;color:var(--muted);">—</span>
+        <button class="btn sm" id="authLogoutButton" hidden>Вийти</button>
+        <a class="btn sm pri" id="authLoginLink" href="/login">Увійти</a>
+        <button class="btn sm" id="btnRefresh">↺</button>
+      </div>
+    </div>
+
+    <div class="body">
+
+      <!-- LEFT: NEW REQUEST FORM -->
+      <div class="col-form">
+        <div class="col-head">
+          <span class="ctitle">Нова заявка</span>
+        </div>
+        <div class="form-scroll">
+
+          <div class="field">
+            <label class="label">Будинок <span>*</span></label>
+            <input class="input" id="buildingSearch" type="text" placeholder="Пошук за адресою...">
+            <div class="building-results" id="buildingResults"></div>
+            <div class="building-selected" id="buildingSelected">
+              <span class="bs-clear" id="bsClear">✕ змінити</span>
+              <div class="bs-addr" id="bsAddr"></div>
+              <div class="bs-meta" id="bsMeta"></div>
+            </div>
+          </div>
+
+          <div class="input-row">
+            <div class="field">
+              <label class="label">Квартира <span>*</span></label>
+              <input class="input" id="flatNumber" type="number" min="1" placeholder="42">
+            </div>
+            <div class="field">
+              <label class="label">Дедлайн <span>*</span></label>
+              <input class="input" id="deadlineAt" type="date">
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="label">Ім'я клієнта <span>*</span></label>
+            <input class="input" id="customerName" type="text" placeholder="Іваненко Олена Василівна">
+          </div>
+
+          <div class="field">
+            <label class="label">Телефон клієнта <span>*</span></label>
+            <input class="input" id="customerPhone" type="tel" placeholder="+380 XX XXX XX XX">
+          </div>
+
+          <div class="field">
+            <label class="label">Примітка</label>
+            <textarea class="textarea input" id="requestNotes" rows="3" placeholder="Особливості доступу, побажання клієнта..."></textarea>
+          </div>
+
+          <div id="formError" style="display:none;font-size:11px;color:var(--red);padding:6px 0;"></div>
+
+        </div>
+        <div class="form-actions">
+          <button class="btn sm" id="btnClearForm">Очистити</button>
+          <button class="btn sm pri" id="btnSubmit">Зберегти заявку</button>
+        </div>
+      </div>
+
+      <!-- CENTER: REQUEST LIST -->
+      <div class="col-list">
+        <div class="col-head">
+          <span class="ctitle">Всі заявки</span>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--accent);background:rgba(14,165,233,.1);border:1px solid rgba(14,165,233,.2);padding:1px 7px;" id="listCount">0</span>
+        </div>
+        <div class="list-filters">
+          <input class="fsearch" id="fSearch" type="text" placeholder="Пошук клієнта або адреси...">
+          <select class="fsel" id="fStatus">
+            <option value="">Всі статуси</option>
+            <option value="new">Нові</option>
+            <option value="scheduled">Заплановано</option>
+            <option value="in_progress">В роботі</option>
+            <option value="completed">Завершено</option>
+            <option value="postponed">Перенесено</option>
+            <option value="no_access">Немає доступу</option>
+          </select>
+        </div>
+        <div class="list-scroll" id="requestList">
+          <div class="empty"><div class="empty-icon">◉</div><span>Завантаження...</span></div>
+        </div>
+      </div>
+
+      <!-- RIGHT: STATS -->
+      <div class="col-right">
+        <div class="col-head"><span class="ctitle">Статистика</span></div>
+        <div class="rscroll">
+          <div class="r-sec">Заявки</div>
+          <div class="kpi-stack">
+            <div class="kpi" style="--kc:var(--accent)">
+              <div class="kpi-l">Всього</div>
+              <div class="kpi-v" id="kTotal">—</div>
+              <div class="kpi-s">заявок</div>
+            </div>
+            <div class="kpi" style="--kc:var(--amber)">
+              <div class="kpi-l">Нових</div>
+              <div class="kpi-v" id="kNew">—</div>
+              <div class="kpi-s">не розподілено</div>
+            </div>
+            <div class="kpi" style="--kc:var(--green)">
+              <div class="kpi-l">Виконано</div>
+              <div class="kpi-v" id="kDone">—</div>
+              <div class="kpi-s">цього місяця</div>
+            </div>
+            <div class="kpi" style="--kc:var(--red)">
+              <div class="kpi-l">Прострочено</div>
+              <div class="kpi-v" id="kOver">—</div>
+              <div class="kpi-s">дедлайн минув</div>
+            </div>
+          </div>
+
+          <div class="r-sec">Швидкий імпорт</div>
+          <div style="font-size:11px;color:var(--muted);line-height:1.6;margin-bottom:10px;">
+            Масовий імпорт із таблиці (CSV/Excel) — буде додано пізніше.
+          </div>
+          <button class="btn sm" disabled style="opacity:.35;cursor:not-allowed;">⬆ Імпорт з файлу</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- DETAIL MODAL -->
+<div class="modal-overlay" id="detailModal">
+  <div class="modal">
+    <div class="modal-title" id="detailModalTitle">Заявка</div>
+    <div id="detailModalBody"></div>
+    <div class="mactions">
+      <button class="btn sm" id="closeDetail">Закрити</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/auth.js"></script>
+<script src="/static/widgets.js"></script>
+<script src="/static/connections_intake.js"></script>
+</body>
+</html>

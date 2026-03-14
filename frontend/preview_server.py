@@ -19,6 +19,7 @@ ROUTES = {
     "/field": "field-ops.html",
     "/warehouse": "warehouse.html",
     "/connections-dispatch": "connections-dispatch.html",
+    "/registry": "registry.html",
 }
 
 

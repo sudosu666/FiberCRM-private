@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FiberOps — Диспетчер підключень</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0b0e13;--s1:#111620;--s2:#161d2a;--b1:#1e2d42;--b2:#253548;--text:#cdd8e8;--muted:#5a7390;--accent:#0ea5e9;--green:#22c55e;--amber:#f59e0b;--red:#ef4444;}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:13px;}
+body::before{content:'';position:fixed;inset:0;z-index:0;background-image:linear-gradient(var(--b1) 1px,transparent 1px),linear-gradient(90deg,var(--b1) 1px,transparent 1px);background-size:48px 48px;opacity:.2;pointer-events:none;}
+.shell{position:relative;z-index:1;display:flex;height:100vh;overflow:hidden;}
+
+.sidebar{width:56px;background:var(--s1);border-right:1px solid var(--b1);display:flex;flex-direction:column;align-items:center;padding:16px 0;gap:4px;flex-shrink:0;}
+.logo{width:32px;height:32px;background:var(--accent);display:flex;align-items:center;justify-content:center;font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;color:var(--bg);margin-bottom:20px;}
+.nb{width:40px;height:40px;display:flex;align-items:center;justify-content:center;border:1px solid transparent;border-radius:6px;color:var(--muted);cursor:pointer;transition:all .15s;text-decoration:none;font-size:16px;background:transparent;}
+.nb:hover{color:var(--text);border-color:var(--b2);background:var(--s2);}
+.nb.active{color:var(--accent);border-color:var(--accent);background:rgba(14,165,233,.08);}
+.sep{width:24px;height:1px;background:var(--b1);margin:8px 0;}
+.push{flex:1;}
+
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+.topbar{height:48px;background:var(--s1);border-bottom:1px solid var(--b1);display:flex;align-items:center;gap:12px;padding:0 20px;flex-shrink:0;}
+.tb-title{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;letter-spacing:3px;text-transform:uppercase;}
+.vsep{width:1px;height:20px;background:var(--b2);}
+.tb-sub{font-size:11px;color:var(--muted);}
+.ml{margin-left:auto;}
+.tb-right{display:flex;align-items:center;gap:10px;}
+.sdot{width:7px;height:7px;border-radius:50%;background:var(--muted);transition:background .3s;flex-shrink:0;}
+.sdot.on{background:var(--green);box-shadow:0 0 6px var(--green);}
+
+.btn{padding:6px 14px;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:500;letter-spacing:1.5px;text-transform:uppercase;border:1px solid var(--b2);background:transparent;color:var(--text);cursor:pointer;transition:all .15s;}
+.btn:hover{border-color:var(--accent);color:var(--accent);}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--bg);}
+.btn.pri:hover{background:#38bdf8;}
+.btn.sm{padding:4px 10px;font-size:9px;}
+.btn.warn{border-color:rgba(245,158,11,.4);color:var(--amber);}
+.btn.warn:hover{background:rgba(245,158,11,.08);}
+.btn:disabled{opacity:.4;cursor:not-allowed;}
+
+.body{flex:1;display:flex;overflow:hidden;}
+
+/* ── QUEUE (left) ── */
+.col-q{width:300px;border-right:1px solid var(--b1);display:flex;flex-direction:column;overflow:hidden;flex-shrink:0;}
+.col-head{padding:10px 14px;border-bottom:1px solid var(--b1);display:flex;align-items:center;gap:8px;background:var(--s1);}
+.ctitle{font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;letter-spacing:3px;text-transform:uppercase;color:var(--muted);flex:1;}
+.cbadge{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--accent);background:rgba(14,165,233,.1);border:1px solid rgba(14,165,233,.2);padding:1px 7px;}
+
+.filters{padding:8px 10px;border-bottom:1px solid var(--b1);display:flex;gap:5px;background:var(--bg);}
+.fsel{flex:1;background:var(--s1);border:1px solid var(--b1);color:var(--text);padding:5px 7px;font-family:'IBM Plex Sans',sans-serif;font-size:11px;}
+.fsel:focus{outline:none;border-color:var(--accent);}
+
+.qlist{flex:1;overflow-y:auto;padding:8px;}
+
+/* request card */
+.rcard{padding:11px 12px;border:1px solid var(--b1);background:var(--s1);margin-bottom:6px;cursor:pointer;transition:all .15s;position:relative;}
+.rcard:hover{border-color:var(--b2);}
+.rcard.sel{border-color:var(--accent);background:rgba(14,165,233,.04);}
+.rcard.sel::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--accent);}
+.rcard.overdue{border-color:rgba(239,68,68,.4);}
+.rcard.overdue::before{background:var(--red) !important;}
+.rcard.soon::before{background:var(--amber) !important;}
+.rc-name{font-weight:500;font-size:12px;margin-bottom:3px;}
+.rc-addr{font-size:11px;color:var(--muted);margin-bottom:5px;}
+.rc-bottom{display:flex;align-items:center;justify-content:space-between;gap:6px;}
+.rc-phone{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--accent);}
+.rc-dl{font-family:'IBM Plex Mono',monospace;font-size:9px;}
+.dl-ok{color:var(--muted);}.dl-soon{color:var(--amber);}.dl-over{color:var(--red);}
+
+.spill{display:inline-flex;align-items:center;gap:4px;font-family:'IBM Plex Mono',monospace;font-size:9px;padding:2px 7px;border:1px solid;white-space:nowrap;}
+.spill-dot{width:5px;height:5px;border-radius:50%;background:currentColor;}
+.s-new{color:var(--muted);border-color:var(--b2);}
+.s-sched{color:var(--accent);border-color:rgba(14,165,233,.3);background:rgba(14,165,233,.06);}
+.s-progress{color:var(--amber);border-color:rgba(245,158,11,.3);background:rgba(245,158,11,.06);}
+.s-done{color:var(--green);border-color:rgba(34,197,94,.3);background:rgba(34,197,94,.06);}
+.s-postponed{color:var(--muted);border-color:var(--b2);background:var(--s2);}
+.s-no_access{color:var(--red);border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.04);}
+
+/* ── DETAIL (center) ── */
+.col-detail{flex:1;display:flex;flex-direction:column;overflow:hidden;border-right:1px solid var(--b1);}
+.d-head{padding:11px 16px;border-bottom:1px solid var(--b1);display:flex;align-items:center;gap:10px;background:var(--s1);flex-shrink:0;}
+.d-title{font-size:13px;font-weight:500;flex:1;}
+.d-actions{display:flex;gap:6px;}
+.d-scroll{flex:1;overflow-y:auto;padding:16px;}
+
+.dsec{margin-bottom:20px;}
+.dsec-label{font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;letter-spacing:3px;text-transform:uppercase;color:var(--muted);margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--b1);}
+
+.info-table{width:100%;border-collapse:collapse;}
+.info-table td{padding:5px 0;vertical-align:top;}
+.info-table td:first-child{font-size:11px;color:var(--muted);width:120px;}
+.info-table td:last-child{font-size:12px;}
+
+/* schedule card */
+.schedule-box{padding:12px;background:var(--s2);border:1px solid var(--b2);margin-bottom:10px;}
+.sb-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.sb-label{font-size:11px;color:var(--muted);min-width:80px;}
+.sb-val{font-size:12px;font-weight:500;}
+.sb-val.missing{color:var(--red);font-size:11px;}
+
+/* connector chip */
+.connector-chip{display:flex;align-items:center;gap:6px;padding:6px 10px;background:var(--s1);border:1px solid var(--b1);margin-bottom:5px;}
+.cc-avatar{width:24px;height:24px;background:var(--s2);border:1px solid var(--b2);display:flex;align-items:center;justify-content:center;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--accent);}
+.cc-name{flex:1;font-size:12px;}
+.cc-load{font-size:10px;color:var(--muted);}
+
+/* ── STATS (right) ── */
+.col-stats{width:220px;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0;}
+.rscroll{flex:1;overflow-y:auto;padding:10px 12px;}
+.r-sec{font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;letter-spacing:3px;text-transform:uppercase;color:var(--muted);margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--b1);}
+.kpi-stack{display:flex;flex-direction:column;gap:5px;margin-bottom:16px;}
+.kpi{padding:9px 10px;background:var(--s1);border:1px solid var(--b1);position:relative;}
+.kpi::after{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:var(--kc,var(--accent));}
+.kpi-l{font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;}
+.kpi-v{font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:600;color:var(--kc,var(--accent));line-height:1;}
+.kpi-s{font-size:9px;color:var(--muted);margin-top:3px;}
+
+/* ── MODALS ── */
+.modal-overlay{position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.65);display:none;align-items:center;justify-content:center;}
+.modal-overlay.open{display:flex;}
+.modal{background:var(--s1);border:1px solid var(--b2);width:460px;padding:22px;}
+.modal-title{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;letter-spacing:2px;text-transform:uppercase;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--b1);}
+.mf{margin-bottom:12px;}
+.ml-label{font-size:10px;color:var(--muted);letter-spacing:1px;margin-bottom:5px;display:block;}
+.minput,.msel{width:100%;background:var(--bg);border:1px solid var(--b2);color:var(--text);padding:8px 10px;font-family:'IBM Plex Sans',sans-serif;font-size:12px;}
+.minput:focus,.msel:focus{outline:none;border-color:var(--accent);}
+.mactions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px;}
+.minput-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--muted);gap:8px;font-size:12px;}
+.empty-icon{font-size:28px;opacity:.3;}
+
+::-webkit-scrollbar{width:3px;}
+::-webkit-scrollbar-track{background:var(--bg);}
+::-webkit-scrollbar-thumb{background:var(--b2);}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <aside class="sidebar">
+    <div class="logo">F</div>
+    <a class="nb" href="/manager" title="Менеджер">⬡</a>
+    <a class="nb" href="/designer" title="Архітектор">◈</a>
+    <a class="nb" href="/dispatcher" title="Диспетчер">▣</a>
+    <div class="sep"></div>
+    <a class="nb" href="/connections-intake" title="Заявки">◉</a>
+    <a class="nb active" href="/connections-dispatch" title="Диспетчер підключень">⊕</a>
+    <a class="nb" href="/warehouse" title="Склад">◎</a>
+    <div class="push"></div>
+    <a class="nb" href="/field" title="Польовий">⬤</a>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <span class="tb-title">FiberOps</span>
+      <div class="vsep"></div>
+      <span class="tb-sub">Диспетчер підключень</span>
+      <div class="ml tb-right">
+        <div class="sdot" id="socketDot"></div>
+        <span id="authUserName" style="font-size:11px;">—</span>
+        <span id="authUserRole" style="font-size:11px;color:var(--muted);">—</span>
+        <button class="btn sm" id="authLogoutButton" hidden>Вийти</button>
+        <a class="btn sm pri" id="authLoginLink" href="/login">Увійти</a>
+        <button class="btn sm" id="btnRefresh">↺</button>
+      </div>
+    </div>
+
+    <div class="body">
+
+      <!-- QUEUE -->
+      <div class="col-q">
+        <div class="col-head">
+          <span class="ctitle">Черга</span>
+          <span class="cbadge" id="qCount">0</span>
+        </div>
+        <div class="filters">
+          <select class="fsel" id="fStatus">
+            <option value="">Всі</option>
+            <option value="new">Нові</option>
+            <option value="scheduled">Заплановано</option>
+            <option value="postponed">Перенесено</option>
+            <option value="no_access">Немає доступу</option>
+          </select>
+          <select class="fsel" id="fDate">
+            <option value="">Будь-який день</option>
+            <option value="today">Сьогодні</option>
+            <option value="tomorrow">Завтра</option>
+            <option value="week">Цей тиждень</option>
+          </select>
+        </div>
+        <div class="qlist" id="queueList">
+          <div class="empty"><div class="empty-icon">⊕</div><span>Завантаження...</span></div>
+        </div>
+      </div>
+
+      <!-- DETAIL -->
+      <div class="col-detail">
+        <div class="d-head" id="dHead" style="display:none;">
+          <div class="d-title" id="dTitle">—</div>
+          <div class="d-actions" id="dActions"></div>
+        </div>
+        <div class="d-scroll" id="dScroll">
+          <div class="empty">
+            <div class="empty-icon">⊕</div>
+            <span>Виберіть заявку зі списку</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- STATS -->
+      <div class="col-stats">
+        <div class="col-head"><span class="ctitle">Стан</span></div>
+        <div class="rscroll">
+          <div class="r-sec">Сьогодні</div>
+          <div class="kpi-stack">
+            <div class="kpi" style="--kc:var(--accent)">
+              <div class="kpi-l">Заплановано</div>
+              <div class="kpi-v" id="kToday">—</div>
+              <div class="kpi-s">виїздів</div>
+            </div>
+            <div class="kpi" style="--kc:var(--green)">
+              <div class="kpi-l">Виконано</div>
+              <div class="kpi-v" id="kDoneToday">—</div>
+              <div class="kpi-s">сьогодні</div>
+            </div>
+            <div class="kpi" style="--kc:var(--amber)">
+              <div class="kpi-l">Нових</div>
+              <div class="kpi-v" id="kNew">—</div>
+              <div class="kpi-s">не розподілено</div>
+            </div>
+            <div class="kpi" style="--kc:var(--red)">
+              <div class="kpi-l">Прострочено</div>
+              <div class="kpi-v" id="kOver">—</div>
+              <div class="kpi-s">дедлайн</div>
+            </div>
+          </div>
+
+          <div class="r-sec">Монтажники</div>
+          <div id="connectorList">
+            <div style="color:var(--muted);font-size:11px;">Завантаження...</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: SCHEDULE -->
+<div class="modal-overlay" id="scheduleModal">
+  <div class="modal">
+    <div class="modal-title">Призначити виїзд</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px;" id="schedModalSub"></div>
+    <div class="minput-row" style="margin-bottom:12px;">
+      <div class="mf">
+        <label class="ml-label">Дата виїзду *</label>
+        <input class="minput" type="date" id="schedDate">
+      </div>
+      <div class="mf">
+        <label class="ml-label">Вікно прибуття *</label>
+        <select class="msel" id="schedWindow">
+          <option value="before_lunch">До обіду (9:00–13:00)</option>
+          <option value="after_lunch">Після обіду (13:00–18:00)</option>
+        </select>
+      </div>
+    </div>
+    <div class="mf">
+      <label class="ml-label">Монтажник (Connector) *</label>
+      <select class="msel" id="schedConnector"></select>
+    </div>
+    <div id="schedWarn" style="display:none;font-size:11px;color:var(--red);margin-top:8px;"></div>
+    <div class="mactions">
+      <button class="btn sm" id="closeSchedule">Скасувати</button>
+      <button class="btn sm pri" id="confirmSchedule">Призначити</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: POSTPONE -->
+<div class="modal-overlay" id="postponeModal">
+  <div class="modal">
+    <div class="modal-title">Перенести заявку</div>
+    <div class="mf">
+      <label class="ml-label">Причина переносу *</label>
+      <input class="minput" type="text" id="postponeReason" placeholder="Клієнт не відповідає, переніс на тиждень...">
+    </div>
+    <div class="mactions">
+      <button class="btn sm" id="closePostpone">Скасувати</button>
+      <button class="btn sm warn" id="confirmPostpone">Перенести</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/auth.js"></script>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script src="/static/widgets.js"></script>
+<script src="/static/connections_dispatch.js"></script>
+</body>
+</html>

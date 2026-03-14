@@ -10,7 +10,17 @@ from sqlalchemy import text
 from .config import settings
 from .database import AsyncSessionLocal, engine, init_db
 from .observability import init_sentry
-from .routers import auth_router, logic_router, ui_router
+from .routers import (
+    auth_router,
+    tasks_router,
+    subscriber_requests_router,
+    buildings_router,
+    network_router,
+    tenders_router,
+    warehouse_router,
+    dispatch_router,
+    ui_router,
+)
 from .seed import seed_demo_data
 from .services.realtime import sio
 from .models import UserRole
@@ -27,7 +37,13 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
-app.include_router(logic_router)
+app.include_router(tasks_router)
+app.include_router(subscriber_requests_router)
+app.include_router(buildings_router)
+app.include_router(network_router)
+app.include_router(tenders_router)
+app.include_router(warehouse_router)
+app.include_router(dispatch_router)
 app.include_router(ui_router)
 
 project_root = Path(__file__).resolve().parents[2]

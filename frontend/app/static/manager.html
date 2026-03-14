@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FiberOps — Менеджер</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:       #0b0e13;
+  --surface:  #111620;
+  --surface2: #161d2a;
+  --border:   #1e2d42;
+  --border2:  #253548;
+  --text:     #cdd8e8;
+  --muted:    #5a7390;
+  --accent:   #0ea5e9;
+  --green:    #22c55e;
+  --amber:    #f59e0b;
+  --red:      #ef4444;
+  --purple:   #a855f7;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'IBM Plex Sans', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  font-size: 13px;
+}
+
+/* ── GRID BACKGROUND ── */
+body::before {
+  content: '';
+  position: fixed; inset: 0; z-index: 0;
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 48px 48px;
+  opacity: 0.25;
+  pointer-events: none;
+}
+
+.app { position: relative; z-index: 1; display: flex; height: 100vh; overflow: hidden; }
+
+/* ══════════════ SIDEBAR ══════════════ */
+.sidebar {
+  width: 56px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 0;
+  gap: 4px;
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.sidebar-logo {
+  width: 32px; height: 32px;
+  background: var(--accent);
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 600; font-size: 14px;
+  color: var(--bg);
+  margin-bottom: 20px;
+}
+
+.nav-btn {
+  width: 40px; height: 40px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all .15s;
+  text-decoration: none;
+  font-size: 16px;
+  background: transparent;
+}
+.nav-btn:hover { color: var(--text); border-color: var(--border2); background: var(--surface2); }
+.nav-btn.active { color: var(--accent); border-color: var(--accent); background: rgba(14,165,233,.08); }
+
+.sidebar-sep { width: 24px; height: 1px; background: var(--border); margin: 8px 0; }
+.sidebar-spacer { flex: 1; }
+
+/* ══════════════ MAIN ══════════════ */
+.main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+/* ── TOPBAR ── */
+.topbar {
+  height: 48px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 20px;
+  flex-shrink: 0;
+}
+
+.topbar-title {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.topbar-sep { width: 1px; height: 20px; background: var(--border2); }
+
+.topbar-crumb {
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 1px;
+}
+
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+
+.topbar-user {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px;
+}
+.topbar-user-name { color: var(--text); }
+.topbar-user-role { color: var(--muted); }
+
+.btn {
+  padding: 6px 14px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  border: 1px solid var(--border2);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  transition: all .15s;
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+.btn-primary:hover { background: #38bdf8; border-color: #38bdf8; color: var(--bg); }
+.btn-sm { padding: 4px 10px; font-size: 9px; }
+
+/* ── BODY ── */
+.body { flex: 1; display: flex; overflow: hidden; }
+
+/* ══════════════ LEFT COLUMN ══════════════ */
+.col-left {
+  width: 320px;
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.col-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface);
+}
+
+.col-title {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--muted);
+  flex: 1;
+}
+
+.col-count {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  color: var(--accent);
+  background: rgba(14,165,233,.1);
+  border: 1px solid rgba(14,165,233,.2);
+  padding: 1px 7px;
+}
+
+.col-scroll { flex: 1; overflow-y: auto; padding: 8px; }
+
+/* ── TENDER CARD ── */
+.tender-card {
+  padding: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: all .15s;
+  position: relative;
+}
+.tender-card:hover { border-color: var(--border2); }
+.tender-card.selected { border-color: var(--accent); background: rgba(14,165,233,.04); }
+.tender-card.selected::before {
+  content: '';
+  position: absolute; left: 0; top: 0; bottom: 0;
+  width: 2px; background: var(--accent);
+}
+
+.tender-name { font-weight: 500; color: var(--text); margin-bottom: 4px; }
+.tender-meta { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+.tender-stats { display: flex; gap: 12px; }
+.tender-stat { font-size: 10px; }
+.tender-stat span { color: var(--muted); }
+
+.status-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  border: 1px solid;
+}
+.pill-new      { color: var(--muted);  border-color: var(--border2); }
+.pill-planning { color: var(--amber);  border-color: rgba(245,158,11,.3); background: rgba(245,158,11,.06); }
+.pill-progress { color: var(--accent); border-color: rgba(14,165,233,.3); background: rgba(14,165,233,.06); }
+.pill-done     { color: var(--green);  border-color: rgba(34,197,94,.3);  background: rgba(34,197,94,.06); }
+
+.pill-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+/* ══════════════ CENTER COLUMN ══════════════ */
+.col-center { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+/* ── BUILDINGS TABLE ── */
+.buildings-area { flex: 1; overflow-y: auto; }
+
+.section-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px;
+  background: var(--surface);
+  position: sticky; top: 0; z-index: 5;
+}
+
+.section-title {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px; font-weight: 600;
+  letter-spacing: 3px; text-transform: uppercase;
+  color: var(--muted);
+}
+
+.buildings-table { width: 100%; border-collapse: collapse; }
+
+.buildings-table th {
+  padding: 8px 16px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px; font-weight: 500;
+  letter-spacing: 2px; text-transform: uppercase;
+  color: var(--muted);
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  position: sticky; top: 41px; z-index: 4;
+  white-space: nowrap;
+}
+
+.buildings-table td {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+  font-size: 12px;
+}
+
+.buildings-table tr { transition: background .1s; }
+.buildings-table tr:hover td { background: rgba(255,255,255,.02); }
+.buildings-table tr.selected td { background: rgba(14,165,233,.04); }
+
+.b-address { color: var(--text); font-weight: 500; }
+.b-sub { color: var(--muted); font-size: 11px; margin-top: 2px; }
+
+.b-stat { font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
+
+.progress-bar {
+  width: 80px; height: 3px;
+  background: var(--border2);
+  position: relative; overflow: hidden;
+}
+.progress-fill {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  transition: width .6s ease;
+}
+
+.assign-cell { display: flex; align-items: center; gap: 6px; }
+
+.dispatcher-tag {
+  padding: 2px 8px;
+  font-size: 10px;
+  border: 1px solid var(--border2);
+  color: var(--muted);
+  display: flex; align-items: center; gap: 4px;
+  cursor: pointer;
+  transition: all .15s;
+}
+.dispatcher-tag:hover { border-color: var(--accent); color: var(--accent); }
+.dispatcher-tag.assigned { border-color: rgba(34,197,94,.4); color: var(--green); background: rgba(34,197,94,.06); }
+
+/* ══════════════ RIGHT PANEL ══════════════ */
+.col-right {
+  width: 280px;
+  border-left: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.right-scroll { flex: 1; overflow-y: auto; padding: 12px; }
+
+/* ── KPI ── */
+.kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 16px; }
+
+.kpi-card {
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  position: relative;
+}
+.kpi-card::after {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0;
+  height: 1px;
+  background: var(--kpi-color, var(--accent));
+}
+
+.kpi-label { font-size: 9px; color: var(--muted); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 6px; }
+.kpi-value {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 22px; font-weight: 600;
+  color: var(--kpi-color, var(--accent));
+  line-height: 1;
+}
+.kpi-sub { font-size: 9px; color: var(--muted); margin-top: 4px; }
+
+/* ── DISPATCH QUEUE ── */
+.section-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px; font-weight: 600;
+  letter-spacing: 3px; text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dispatcher-row {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px;
+}
+.dispatcher-row:last-child { border-bottom: none; }
+
+.dispatcher-avatar {
+  width: 28px; height: 28px;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.dispatcher-info { flex: 1; min-width: 0; }
+.dispatcher-name { font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dispatcher-load { font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+.load-bar {
+  height: 2px;
+  background: var(--border2);
+  margin-top: 4px;
+  position: relative; overflow: hidden;
+}
+.load-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); transition: width .5s; }
+.load-fill.warn { background: var(--amber); }
+.load-fill.full { background: var(--red); }
+
+/* ── ASSIGN MODAL ── */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(0,0,0,.6);
+  display: none; align-items: center; justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  width: 420px;
+  padding: 20px;
+}
+
+.modal-title {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px; font-weight: 600;
+  letter-spacing: 2px; text-transform: uppercase;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-field { margin-bottom: 12px; }
+.modal-label { font-size: 10px; color: var(--muted); letter-spacing: 1px; margin-bottom: 6px; display: block; }
+
+.modal-select, .modal-input {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  padding: 8px 10px;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 12px;
+}
+.modal-select:focus, .modal-input:focus { outline: none; border-color: var(--accent); }
+
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border2); }
+
+/* ── PLACEHOLDER ── */
+.placeholder-state {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  height: 200px;
+  color: var(--muted);
+  font-size: 12px;
+  gap: 8px;
+}
+.placeholder-icon { font-size: 28px; opacity: .3; }
+
+/* ── PIPELINE FLOW ── */
+.pipeline-strip {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.pipeline-step {
+  flex: 1;
+  padding: 10px 16px;
+  border-right: 1px solid var(--border);
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px;
+  position: relative;
+}
+.pipeline-step:last-child { border-right: none; }
+
+.pipeline-step-num {
+  width: 18px; height: 18px;
+  border: 1px solid var(--border2);
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.pipeline-step.done .pipeline-step-num { border-color: var(--green); color: var(--green); background: rgba(34,197,94,.08); }
+.pipeline-step.active .pipeline-step-num { border-color: var(--accent); color: var(--accent); background: rgba(14,165,233,.08); }
+
+.pipeline-step-label { color: var(--muted); }
+.pipeline-step.done .pipeline-step-label { color: var(--green); }
+.pipeline-step.active .pipeline-step-label { color: var(--text); }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">F</div>
+    <a class="nav-btn active" href="/manager" title="Менеджер">⬡</a>
+    <a class="nav-btn" href="/designer" title="Проектувальник">◈</a>
+    <a class="nav-btn" href="/dispatcher" title="Диспетчер">▣</a>
+    <div class="sidebar-sep"></div>
+    <a class="nav-btn" href="/warehouse" title="Склад">◎</a>
+    <a class="nav-btn" href="/connections-dispatch" title="Підключення">◉</a>
+    <div class="sidebar-spacer"></div>
+    <a class="nav-btn" href="/field" title="Польовий">⬤</a>
+  </aside>
+
+  <div class="main">
+
+    <!-- TOPBAR -->
+    <div class="topbar">
+      <span class="topbar-title">FiberOps</span>
+      <div class="topbar-sep"></div>
+      <span class="topbar-crumb">Менеджер проєктів</span>
+      <div class="topbar-right">
+        <div class="topbar-user">
+          <span id="authUserName" class="topbar-user-name">—</span>
+          <span id="authUserRole" class="topbar-user-role">—</span>
+        </div>
+        <button class="btn btn-sm" id="authLogoutButton" hidden>Вийти</button>
+        <a class="btn btn-sm btn-primary" id="authLoginLink" href="/login">Увійти</a>
+        <button class="btn btn-sm btn-primary" id="openCreateTender">+ Тендер</button>
+      </div>
+    </div>
+
+    <div class="body">
+
+      <!-- LEFT: TENDERS -->
+      <div class="col-left">
+        <div class="col-header">
+          <span class="col-title">Тендери</span>
+          <span class="col-count" id="tenderCount">0</span>
+        </div>
+        <div class="col-scroll" id="tenderList">
+          <div class="placeholder-state">
+            <div class="placeholder-icon">◎</div>
+            <span>Завантаження...</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- CENTER: BUILDINGS + PIPELINE -->
+      <div class="col-center">
+
+        <!-- Pipeline strip -->
+        <div class="pipeline-strip" id="pipelineStrip">
+          <div class="pipeline-step done">
+            <div class="pipeline-step-num">✓</div>
+            <span class="pipeline-step-label">Тендер прийнято</span>
+          </div>
+          <div class="pipeline-step active">
+            <div class="pipeline-step-num">2</div>
+            <span class="pipeline-step-label">Архітектор</span>
+          </div>
+          <div class="pipeline-step">
+            <div class="pipeline-step-num">3</div>
+            <span class="pipeline-step-label">Затверджено</span>
+          </div>
+          <div class="pipeline-step">
+            <div class="pipeline-step-num">4</div>
+            <span class="pipeline-step-label">Призначено диспетчеру</span>
+          </div>
+          <div class="pipeline-step">
+            <div class="pipeline-step-num">5</div>
+            <span class="pipeline-step-label">Виконання</span>
+          </div>
+        </div>
+
+        <div class="buildings-area" id="buildingsArea">
+          <div class="placeholder-state">
+            <div class="placeholder-icon">▣</div>
+            <span>Виберіть тендер зліва</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: KPI + DISPATCHERS -->
+      <div class="col-right">
+        <div class="col-header">
+          <span class="col-title">Огляд</span>
+          <button class="btn btn-sm" id="refreshBtn">↺</button>
+        </div>
+        <div class="right-scroll">
+
+          <div class="kpi-grid" id="kpiGrid">
+            <div class="kpi-card" style="--kpi-color: var(--accent)">
+              <div class="kpi-label">Тендерів</div>
+              <div class="kpi-value" id="kpiTenders">—</div>
+              <div class="kpi-sub">активних</div>
+            </div>
+            <div class="kpi-card" style="--kpi-color: var(--green)">
+              <div class="kpi-label">Будинків</div>
+              <div class="kpi-value" id="kpiBuildings">—</div>
+              <div class="kpi-sub">в роботі</div>
+            </div>
+            <div class="kpi-card" style="--kpi-color: var(--amber)">
+              <div class="kpi-label">Задач</div>
+              <div class="kpi-value" id="kpiTasks">—</div>
+              <div class="kpi-sub">відкрито</div>
+            </div>
+            <div class="kpi-card" style="--kpi-color: var(--red)">
+              <div class="kpi-label">Критичних</div>
+              <div class="kpi-value" id="kpiCritical">—</div>
+              <div class="kpi-sub">задач</div>
+            </div>
+          </div>
+
+          <div class="section-label">Диспетчери / Бригадири</div>
+          <div id="dispatcherList">
+            <div style="color:var(--muted); font-size:11px; padding:12px 0;">Завантаження...</div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ASSIGN MODAL -->
+<div class="modal-overlay" id="assignModal">
+  <div class="modal">
+    <div class="modal-title">Призначити диспетчера</div>
+    <div class="modal-field">
+      <label class="modal-label">Будинок</label>
+      <div id="modalBuildingName" style="font-size:13px; color:var(--text); padding:6px 0;"></div>
+    </div>
+    <div class="modal-field">
+      <label class="modal-label">Диспетчер / Бригадир</label>
+      <select class="modal-select" id="modalDispatcherSelect">
+        <option value="">— оберіть —</option>
+      </select>
+    </div>
+    <div class="modal-field">
+      <label class="modal-label">Примітка (необов'язково)</label>
+      <input class="modal-input" type="text" id="modalNote" placeholder="Пріоритет, особливості доступу...">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-sm" id="closeAssignModal">Скасувати</button>
+      <button class="btn btn-sm btn-primary" id="confirmAssign">Призначити</button>
+    </div>
+  </div>
+</div>
+
+<!-- CREATE TENDER MODAL -->
+<div class="modal-overlay" id="createTenderModal">
+  <div class="modal">
+    <div class="modal-title">Новий тендер</div>
+    <div class="modal-field">
+      <label class="modal-label">Назва</label>
+      <input class="modal-input" type="text" id="newTenderName" placeholder="ЖК «Назва» · Місто">
+    </div>
+    <div class="modal-field">
+      <label class="modal-label">Замовник</label>
+      <input class="modal-input" type="text" id="newTenderCustomer" value="Vodafone Ukraine">
+    </div>
+    <div class="modal-field">
+      <label class="modal-label">Місто</label>
+      <input class="modal-input" type="text" id="newTenderCity" placeholder="Харків">
+    </div>
+    <div class="modal-field">
+      <label class="modal-label">Дедлайн</label>
+      <input class="modal-input" type="date" id="newTenderDeadline">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-sm" id="closeCreateTender">Скасувати</button>
+      <button class="btn btn-sm btn-primary" id="confirmCreateTender">Створити</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/auth.js"></script>
+<script src="/static/manager.js"></script>
+</body>
+</html>

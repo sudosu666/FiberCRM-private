@@ -18,12 +18,22 @@ AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=F
 async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
-        await conn.execute(text("ALTER TABLE buildings ADD COLUMN IF NOT EXISTS servicing_org_name VARCHAR"))
-        await conn.execute(text("ALTER TABLE buildings ADD COLUMN IF NOT EXISTS servicing_org_phone VARCHAR(100)"))
-        await conn.execute(text("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS postponed_reason VARCHAR"))
-        await conn.execute(text("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS postponed_at TIMESTAMP"))
-        await conn.execute(text("ALTER TABLE subscriber_requests ADD COLUMN IF NOT EXISTS postponed_reason VARCHAR"))
-        await conn.execute(text("ALTER TABLE subscriber_requests ADD COLUMN IF NOT EXISTS postponed_at TIMESTAMP"))
+        columns_to_add = [
+            ("buildings", "servicing_org_name", "VARCHAR"),
+            ("buildings", "servicing_org_phone", "VARCHAR(100)"),
+            ("tasks", "postponed_reason", "VARCHAR"),
+            ("tasks", "postponed_at", "TIMESTAMP"),
+            ("subscriber_requests", "postponed_reason", "VARCHAR"),
+            ("subscriber_requests", "postponed_at", "TIMESTAMP"),
+        ]
+        for table, column, dtype in columns_to_add:
+            try:
+                await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {dtype}"))
+            except Exception as e:
+                if "duplicate column name" in str(e).lower():
+                    pass
+                else:
+                    print(f"Ignored DB Init Error: {e}")
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionLocal() as session:
