@@ -408,6 +408,8 @@ class NetworkMuffleRead(BaseModel):
     id: UUID
     name: Optional[str]
     address_note: Optional[str]
+    coordinate_lat: Optional[float] = None
+    coordinate_lon: Optional[float] = None
     capacity: int
     fibers: List[NetworkFiberRead]
 

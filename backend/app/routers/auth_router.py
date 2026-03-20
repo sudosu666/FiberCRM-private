@@ -9,6 +9,7 @@ from ..auth import get_password_hash
 from ..rate_limit import enforce_http_rate_limit
 from ..models import User
 from ..schemas import LoginRequest, Token, UserCreate, UserRead, UserRole, UserRoleUpdate
+from ..seed import demo_login_users
 from .auth_helpers import (
     authenticate_user,
     create_token_response,
@@ -79,6 +80,12 @@ async def auth_me(current_user: User = Depends(get_current_user)) -> UserRead:
         roles=roles,
         is_active=current_user.is_active,
     )
+
+@router.get('/auth/demo-users')
+async def auth_demo_users() -> list[dict[str, str]]:
+    if not settings.seed_demo_data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Demo users disabled')
+    return demo_login_users()
 
 
 @router.get('/auth/users', response_model=list[UserRead])

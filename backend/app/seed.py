@@ -8,6 +8,7 @@ from .models import (
     Building,
     Fiber,
     FiberStatus,
+    InfraStatus,
     Muffle,
     Panel,
     Port,
@@ -26,75 +27,160 @@ from .models import (
     TaskStep,
 )
 
-async def seed_demo_data(session: AsyncSession) -> None:
-    existing = await session.scalar(select(func.count()).select_from(Tender))
-    connection_dispatcher_existing = await session.scalar(select(User).where(User.phone == '+38000000007'))
-    if existing and existing > 0:
-        if not connection_dispatcher_existing:
-            session.add(User(
-                name='Назар Диспетчер Підключень',
-                phone='+38000000007',
-                email='connection.dispatch@fiberops.local',
-                role=UserRole.Dispatcher,
-                additional_roles='ConnectionDispatcher',
-                password_hash=get_password_hash('connect-dispatch'),
-            ))
-            await session.commit()
+DEMO_USERS = [
+    {
+        "name": "Олена Диспетчер",
+        "phone": "+38000000001",
+        "email": "dispatcher@fiberops.local",
+        "role": UserRole.Dispatcher,
+        "additional_roles": None,
+        "password": "dispatcher",
+    },
+    {
+        "name": "BRG-03 Foreman",
+        "phone": "+38000000002",
+        "email": "builder@fiberops.local",
+        "role": UserRole.Builder,
+        "additional_roles": UserRole.Welder.value,
+        "password": "builder",
+    },
+    {
+        "name": "WL-01 Foreman",
+        "phone": "+38000000003",
+        "email": "welder@fiberops.local",
+        "role": UserRole.Welder,
+        "additional_roles": None,
+        "password": "welder",
+    },
+    {
+        "name": "CN-01 Foreman",
+        "phone": "+38000000004",
+        "email": "connector@fiberops.local",
+        "role": UserRole.Connector,
+        "additional_roles": None,
+        "password": "connector",
+    },
+    {
+        "name": "Ірина Склад",
+        "phone": "+38000000005",
+        "email": "warehouse@fiberops.local",
+        "role": UserRole.Warehouse,
+        "additional_roles": None,
+        "password": "warehouse",
+    },
+    {
+        "name": "Марко Проектувальник",
+        "phone": "+38000000006",
+        "email": "designer@fiberops.local",
+        "role": UserRole.Designer,
+        "additional_roles": None,
+        "password": "designer",
+    },
+    {
+        "name": "Назар Диспетчер Підключень",
+        "phone": "+38000000007",
+        "email": "connection.dispatch@fiberops.local",
+        "role": UserRole.Dispatcher,
+        "additional_roles": UserRole.ConnectionDispatcher.value,
+        "password": "connect-dispatch",
+    },
+]
+
+CLEAN_TENDER_NAME = "Тестовий тендер · Чисті будинки"
+CLEAN_BUILDINGS = [
+    {"address": "вул. Миру 10 · Харків", "city": "Харків", "entrances": 2, "floors": 9, "flats": 4, "distance": 60},
+    {"address": "вул. Перемоги 24 · Харків", "city": "Харків", "entrances": 3, "floors": 12, "flats": 4, "distance": 120},
+    {"address": "вул. Квіткова 7 · Харків", "city": "Харків", "entrances": 4, "floors": 10, "flats": 5, "distance": 90},
+    {"address": "просп. Науки 33 · Харків", "city": "Харків", "entrances": 2, "floors": 16, "flats": 6, "distance": 150},
+    {"address": "вул. Слобідська 5 · Харків", "city": "Харків", "entrances": 1, "floors": 5, "flats": 4, "distance": 45},
+]
+
+
+def demo_login_users() -> list[dict[str, str]]:
+    return [
+        {
+            "name": user["name"],
+            "phone": user["phone"],
+            "role": user["role"].value,
+            "password": user["password"],
+        }
+        for user in DEMO_USERS
+    ]
+
+
+async def ensure_demo_users(session: AsyncSession) -> dict[str, User]:
+    phones = [user["phone"] for user in DEMO_USERS]
+    existing_users = (
+        await session.scalars(select(User).where(User.phone.in_(phones)))
+    ).all()
+    users_by_phone = {user.phone: user for user in existing_users}
+
+    for demo_user in DEMO_USERS:
+        if demo_user["phone"] in users_by_phone:
+            continue
+        user = User(
+            name=demo_user["name"],
+            phone=demo_user["phone"],
+            email=demo_user["email"],
+            role=demo_user["role"],
+            additional_roles=demo_user["additional_roles"],
+            password_hash=get_password_hash(demo_user["password"]),
+        )
+        session.add(user)
+        users_by_phone[user.phone] = user
+
+    await session.flush()
+    return users_by_phone
+
+
+async def ensure_clean_tender_buildings(session: AsyncSession) -> None:
+    clean_tender = await session.scalar(select(Tender).where(Tender.name == CLEAN_TENDER_NAME))
+    if not clean_tender:
+        clean_tender = Tender(
+            name=CLEAN_TENDER_NAME,
+            city="Харків",
+            customer="FiberOps Test",
+            status=TenderStatus.planning,
+            deadline=datetime.utcnow() + timedelta(days=90),
+        )
+        session.add(clean_tender)
+        await session.flush()
+
+    existing_buildings = await session.scalar(
+        select(func.count()).select_from(Building).where(Building.tender_id == clean_tender.id)
+    )
+    if existing_buildings and existing_buildings > 0:
         return
 
-    dispatcher = User(
-        name='Олена Диспетчер',
-        phone='+38000000001',
-        email='dispatcher@fiberops.local',
-        role=UserRole.Dispatcher,
-        password_hash=get_password_hash('dispatcher'),
-    )
-    designer = User(
-        name='Марко Проектувальник',
-        phone='+38000000006',
-        email='designer@fiberops.local',
-        role=UserRole.Designer,
-        password_hash=get_password_hash('designer'),
-    )
-    builder = User(
-        name='BRG-03 Foreman',
-        phone='+38000000002',
-        email='builder@fiberops.local',
-        role=UserRole.Builder,
-        additional_roles=UserRole.Welder.value,
-        password_hash=get_password_hash('builder'),
-    )
-    welder = User(
-        name='WL-01 Foreman',
-        phone='+38000000003',
-        email='welder@fiberops.local',
-        role=UserRole.Welder,
-        password_hash=get_password_hash('welder'),
-    )
-    connector = User(
-        name='CN-01 Foreman',
-        phone='+38000000004',
-        email='connector@fiberops.local',
-        role=UserRole.Connector,
-        password_hash=get_password_hash('connector'),
-    )
-    warehouse = User(
-        name='Ірина Склад',
-        phone='+38000000005',
-        email='warehouse@fiberops.local',
-        role=UserRole.Warehouse,
-        password_hash=get_password_hash('warehouse'),
-    )
-    connection_dispatcher = User(
-        name='Назар Диспетчер Підключень',
-        phone='+38000000007',
-        email='connection.dispatch@fiberops.local',
-        role=UserRole.Dispatcher,
-        additional_roles='ConnectionDispatcher',
-        password_hash=get_password_hash('connect-dispatch'),
-    )
-    session.add_all([dispatcher, designer, builder, welder, connector, warehouse, connection_dispatcher])
+    for item in CLEAN_BUILDINGS:
+        session.add(Building(
+            tender_id=clean_tender.id,
+            address=item["address"],
+            city=item["city"],
+            entrances_count=item["entrances"],
+            floors_count=item["floors"],
+            flats_per_floor=item["flats"],
+            floor_height_m=2.8,
+            panel_every_n_floors=5,
+            distance_from_muffle_m=item["distance"],
+            cable_reserve_pct=15,
+            infrastructure_status=InfraStatus.planned,
+        ))
     await session.flush()
+
+
+async def seed_demo_data(session: AsyncSession) -> None:
+    users_by_phone = await ensure_demo_users(session)
+    existing = await session.scalar(select(func.count()).select_from(Tender))
+    if existing and existing > 0:
+        await ensure_clean_tender_buildings(session)
+        await session.commit()
+        return
+
+    dispatcher = users_by_phone["+38000000001"]
+    builder = users_by_phone["+38000000002"]
+    welder = users_by_phone["+38000000003"]
+    connector = users_by_phone["+38000000004"]
 
     tender = Tender(
         name='ЖК Сонячний',
@@ -232,4 +318,5 @@ async def seed_demo_data(session: AsyncSession) -> None:
         ),
     ]
     session.add_all(request_items)
+    await ensure_clean_tender_buildings(session)
     await session.commit()

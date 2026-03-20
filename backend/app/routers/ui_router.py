@@ -11,6 +11,7 @@ if not templates_dir.exists():
     templates_dir = Path(__file__).resolve().parents[2] / "frontend" / "templates"
 templates = Jinja2Templates(directory=str(templates_dir))
 dashboards_dir = project_root / "frontend" / "prototypes"
+static_pages_dir = project_root / "frontend" / "app" / "static"
 dashboard_designer_file = dashboards_dir / "fiber-designer.html"
 
 
@@ -19,9 +20,19 @@ async def get_dispatcher_board(request: Request) -> HTMLResponse:
     return templates.TemplateResponse("dispatcher.html", {"request": request})
 
 
-@router.get("/connections-dispatch", response_class=HTMLResponse)
-async def get_connections_dispatch_board(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse("connections-dispatch.html", {"request": request})
+@router.get("/connections-dispatch", response_class=FileResponse)
+async def get_connections_dispatch_board() -> FileResponse:
+    return FileResponse(static_pages_dir / "connections_dispatch.html")
+
+
+@router.get("/connections-intake", response_class=FileResponse)
+async def get_connections_intake_board() -> FileResponse:
+    return FileResponse(static_pages_dir / "connections_intake.html")
+
+
+@router.get("/manager", response_class=FileResponse)
+async def get_manager_board() -> FileResponse:
+    return FileResponse(static_pages_dir / "manager.html")
 
 
 @router.get("/login", response_class=HTMLResponse)

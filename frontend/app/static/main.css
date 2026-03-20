@@ -300,3 +300,89 @@ a {
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: var(--border-hover); border-radius: 4px; }
+
+/* ──────────────────────────────────────────────────────────────────────────
+   RESPONSIVE
+   ────────────────────────────────────────────────────────────────────────── */
+@media (max-width: 1100px) {
+    .grid-3 { grid-template-columns: 1fr 1fr; }
+    .main-content { padding: 16px; }
+    .card { padding: 16px; }
+}
+
+@media (max-width: 820px) {
+    :root {
+        --topbar-h: auto;
+    }
+
+    .app-shell {
+        flex-direction: column;
+        min-height: 100vh;
+        height: auto;
+    }
+
+    .app-sidebar {
+        width: 100%;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+        overflow-x: auto;
+        overflow-y: hidden;
+        display: block;
+    }
+
+    .app-main {
+        min-height: 0;
+    }
+
+    .app-topbar {
+        padding: 10px 12px;
+        min-height: 56px;
+        height: auto;
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .main-content {
+        padding: 12px;
+    }
+
+    .grid-2,
+    .grid-3 {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .btn {
+        min-height: 40px;
+        padding: 9px 12px;
+    }
+
+    .tabs {
+        overflow-x: auto;
+        white-space: nowrap;
+        padding-bottom: 6px;
+    }
+
+    .tab {
+        padding: 10px 12px;
+        flex: 0 0 auto;
+    }
+}
+
+@media (max-width: 480px) {
+    body {
+        font-size: 14px;
+    }
+
+    .card-title {
+        font-size: 13px;
+    }
+
+    .field input,
+    .field select,
+    .field textarea {
+        font-size: 16px;
+        padding: 10px 12px;
+    }
+}

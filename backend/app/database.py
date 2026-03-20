@@ -6,6 +6,7 @@ from sqlalchemy import text
 from sqlmodel import SQLModel
 
 from .config import settings
+from . import models  # noqa: F401  # Ensure SQLModel metadata includes all tables.
 
 engine = create_async_engine(
     settings.database_url,
@@ -26,14 +27,9 @@ async def init_db() -> None:
             ("subscriber_requests", "postponed_reason", "VARCHAR"),
             ("subscriber_requests", "postponed_at", "TIMESTAMP"),
         ]
-        for table, column, dtype in columns_to_add:
-            try:
-                await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {dtype}"))
-            except Exception as e:
-                if "duplicate column name" in str(e).lower():
-                    pass
-                else:
-                    print(f"Ignored DB Init Error: {e}")
+        if conn.dialect.name == "postgresql":
+            for table, column, dtype in columns_to_add:
+                await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {dtype}"))
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionLocal() as session:

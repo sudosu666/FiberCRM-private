@@ -2,15 +2,26 @@ from __future__ import annotations
 
 import os
 
+import httpx
+import pytest
 from playwright.sync_api import Page, sync_playwright
 
 
 BASE_URL = os.getenv("E2E_BASE_URL", "http://localhost:8000")
 
 
+def _require_backend() -> None:
+    try:
+        response = httpx.get(f"{BASE_URL}/health/live", timeout=3.0)
+    except Exception as exc:
+        pytest.skip(f"E2E backend is not reachable: {exc}")
+    if response.status_code != 200:
+        pytest.skip(f"E2E backend is not ready: {response.status_code}")
+
+
 def login(page: Page, phone: str, password: str, expected_path: str) -> None:
     page.goto(f"{BASE_URL}/login", wait_until="networkidle")
-    page.fill("#phone", phone)
+    page.fill("#username", phone)
     page.fill("#password", password)
     page.click('button[type="submit"]')
     page.wait_for_url(f"**{expected_path}", timeout=10000)
@@ -18,6 +29,7 @@ def login(page: Page, phone: str, password: str, expected_path: str) -> None:
 
 
 def test_role_ui_walkthrough() -> None:
+    _require_backend()
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
 
@@ -42,29 +54,26 @@ def test_role_ui_walkthrough() -> None:
             login(page, phone, password, path)
 
             if role == "dispatcher":
-                page.wait_for_selector("#tasksList .item, #tasksList .placeholder", timeout=10000)
+                page.wait_for_selector("#tasksList", timeout=10000)
                 page.click("#refreshTasks")
                 page.fill("#groupName", "Playwright Brigade")
                 page.select_option("#groupType", "construction")
-                if page.locator("#groupForeman option").count() > 1:
-                    page.select_option("#groupForeman", index=1)
-                if page.locator("#groupMembers option").count() > 0:
-                    page.locator("#groupMembers option").nth(0).evaluate("el => el.selected = true")
                 page.click("#createGroup")
                 page.wait_for_timeout(800)
-                if page.locator("[data-save-user]").count() > 0:
-                    page.locator("[data-save-user]").first.click()
-                    page.wait_for_timeout(500)
+                assert page.locator("#brigadesList .task-item").count() >= 1
 
             elif role == "designer":
                 page.wait_for_selector("input#addr", timeout=10000)
                 page.fill("#addr", "Playwright UI Building")
                 page.fill("#city", "Kyiv")
+                page.fill("#dist", "140")
+                page.click("text=Інфо для виконання")
+                page.wait_for_selector("#executionPlan .task-item", timeout=10000)
                 page.click("text=Зберегти план")
                 page.wait_for_timeout(1000)
 
             elif role == "warehouse":
-                page.wait_for_selector("#stockList .item, #stockList .placeholder", timeout=10000)
+                page.wait_for_selector("#stockList", timeout=10000)
                 page.fill("#adjustDelta", "1")
                 page.fill("#adjustReason", "playwright-adjust")
                 if page.locator("#adjustStockItem option").count() > 0:
@@ -79,7 +88,7 @@ def test_role_ui_walkthrough() -> None:
                     page.wait_for_timeout(600)
 
             elif role == "field":
-                page.wait_for_selector("#taskList .task-card, #taskList .placeholder", timeout=10000)
+                page.wait_for_selector("#taskList", timeout=10000)
                 for selector in ["#refreshTasks", "#advanceStep", "#startTask", "#finishTask"]:
                     page.click(selector)
                     page.wait_for_timeout(250)

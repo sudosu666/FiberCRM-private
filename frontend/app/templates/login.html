@@ -26,8 +26,8 @@
 
   <form id="loginForm" class="flex-col">
     <div class="field">
-      <label>Логін</label>
-      <input type="text" id="username" placeholder="alex_pro" required autofocus>
+      <label>Телефон</label>
+      <input type="text" id="username" placeholder="+38000000001" required autofocus>
     </div>
     <div class="field">
       <label>Пароль</label>
@@ -35,6 +35,11 @@
     </div>
     <button type="submit" class="btn btn-primary" style="margin-top: 10px; width:100%">Увійти в систему</button>
   </form>
+
+  <div id="demoUsers" style="margin-top:16px;text-align:left;border-top:1px solid var(--border);padding-top:12px;">
+    <div style="font-size:10px;color:var(--text-muted);margin-bottom:8px;letter-spacing:1px;text-transform:uppercase;">Тестові акаунти</div>
+    <div id="demoUsersList" style="font-size:11px;color:var(--text-secondary);line-height:1.6;">Завантаження...</div>
+  </div>
   
   <p style="margin-top: 24px; font-size: 11px; color: var(--text-muted)">Магістраль: Доступна (UKR-12)</p>
 </div>
@@ -51,20 +56,30 @@
     const p = document.getElementById('password').value;
 
     try {
-        const res = await fetch('/api/login', {
+        const res = await fetch('/auth/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: u, password: p })
+            body: JSON.stringify({ phone: u, password: p })
         });
 
         if (res.ok) {
             const data = await res.json();
-            window.localStorage.setItem('fiberops_token', data.token);
-            window.localStorage.setItem('fiberops_user', JSON.stringify(data.user));
-            // Redirect based on role
-            const role = data.user.role;
+            const token = data.access_token;
+            if (!token) throw new Error('missing token');
+
+            window.localStorage.setItem('fiberops_token', token);
+            const meRes = await fetch('/auth/me', {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+            const me = meRes.ok ? await meRes.json() : null;
+            if (me) {
+              window.localStorage.setItem('fiberops_user', JSON.stringify(me));
+            }
+
+            const role = me?.role;
             if (role === 'Designer') window.location.href = '/designer';
             else if (role === 'Dispatcher') window.location.href = '/dispatcher';
+            else if (role === 'Warehouse') window.location.href = '/warehouse';
             else window.location.href = '/dispatcher';
         } else {
             errorBox.style.display = 'block';
@@ -79,6 +94,27 @@
   if (window.localStorage.getItem('fiberops_token')) {
     // maybe auto redirect?
   }
+
+  async function loadDemoUsers() {
+    const mount = document.getElementById('demoUsersList');
+    if (!mount) return;
+    try {
+      const res = await fetch('/auth/demo-users');
+      if (!res.ok) throw new Error('demo unavailable');
+      const users = await res.json();
+      if (!Array.isArray(users) || users.length === 0) {
+        mount.textContent = 'Немає тестових акаунтів';
+        return;
+      }
+      mount.innerHTML = users.map((u) =>
+        `<div><strong>${u.phone}</strong> · ${u.role} · <code>${u.password}</code></div>`
+      ).join('');
+    } catch (_err) {
+      mount.textContent = 'Тестові акаунти недоступні';
+    }
+  }
+
+  loadDemoUsers();
 </script>
 </body>
 </html>

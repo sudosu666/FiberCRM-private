@@ -693,6 +693,8 @@ async def load_network_topology(session: AsyncSession) -> List[NetworkMuffleRead
         id=str(muffle.id),
         name=muffle.name,
         address_note=muffle.address_note,
+        coordinate_lat=muffle.coordinate_lat,
+        coordinate_lon=muffle.coordinate_lon,
         capacity=muffle.capacity,
         fibers=_network_fibers_for_muffle(muffle, muffle.fibers),
     ) for muffle in muffles]
