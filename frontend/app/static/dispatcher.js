@@ -8,6 +8,16 @@
     workers: []
   };
 
+  function syncEntityBridge() {
+    if (!window.DispatcherEntityBridge || typeof window.DispatcherEntityBridge.setData !== 'function') return;
+    window.DispatcherEntityBridge.setData({
+      tasks: state.tasks,
+      buildings: state.buildings,
+      brigades: state.brigades,
+      workers: state.workers
+    });
+  }
+
   function el(id) {
     return document.getElementById(id);
   }
@@ -32,6 +42,7 @@
     state.buildings = Array.isArray(buildings) ? buildings : [];
     state.brigades = Array.isArray(brigades) ? brigades : [];
     state.workers = Array.isArray(workers) ? workers : [];
+    syncEntityBridge();
   }
 
   function statusLabel(status) {
@@ -226,6 +237,10 @@
   }
 
   function showEntityDetails(entityType, entityId) {
+    if (window.DispatcherEntityBridge && typeof window.DispatcherEntityBridge.selectEntity === 'function') {
+      window.DispatcherEntityBridge.selectEntity(entityType, entityId);
+      return;
+    }
     const mount = el('entityDetails');
     if (!mount) return;
     if (!entityId) {

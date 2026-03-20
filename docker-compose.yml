@@ -83,13 +83,10 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-    entrypoint: ["/bin/sh", "-lc"]
-    command: >
-      if [ -n "$NGROK_DOMAIN" ]; then
-        ngrok http backend:8000 --domain="$NGROK_DOMAIN";
-      else
-        ngrok http backend:8000;
-      fi
+    command:
+      - "http"
+      - "backend:8000"
+      - "--url=${NGROK_DOMAIN}"
     environment:
       NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN}
 
