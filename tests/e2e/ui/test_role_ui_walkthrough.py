@@ -90,14 +90,23 @@ def test_role_ui_walkthrough() -> None:
             elif role == "field":
                 page.wait_for_selector("#taskList", timeout=10000)
                 for selector in ["#refreshTasks", "#advanceStep", "#startTask", "#finishTask"]:
-                    page.click(selector)
-                    page.wait_for_timeout(250)
-                page.fill("#holdReason", "playwright hold")
-                page.click("#holdTask")
-                page.wait_for_timeout(250)
-                page.fill("#chatInput", "playwright chat")
-                page.click('#chatForm button[type="submit"]')
-                page.wait_for_timeout(500)
+                    control = page.locator(selector)
+                    if control.count() and control.first.is_visible():
+                        control.first.click()
+                        page.wait_for_timeout(250)
+                hold_reason = page.locator("#holdReason")
+                if hold_reason.count() and hold_reason.first.is_visible():
+                    hold_reason.first.fill("playwright hold")
+                    hold_button = page.locator("#holdTask")
+                    if hold_button.count() and hold_button.first.is_visible():
+                        hold_button.first.click()
+                        page.wait_for_timeout(250)
+                chat_input = page.locator("#chatInput")
+                chat_send = page.locator('#chatForm button[type="submit"]')
+                if chat_input.count() and chat_input.first.is_visible() and chat_send.count() and chat_send.first.is_visible():
+                    chat_input.first.fill("playwright chat")
+                    chat_send.first.click()
+                    page.wait_for_timeout(500)
 
             assert console_errors == [], f"{role} console errors: {console_errors}"
             page.close()

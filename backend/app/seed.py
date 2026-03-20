@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .auth import get_password_hash
 from .models import (
     Brigade,
+    BrigadeMember,
     Building,
     Fiber,
     FiberStatus,
@@ -245,6 +246,11 @@ async def seed_demo_data(session: AsyncSession) -> None:
         brigades[0].foreman_id = builder.id
         brigades[1].foreman_id = welder.id
         brigades[2].foreman_id = connector.id
+        session.add_all([
+            BrigadeMember(brigade_id=brigades[0].id, user_id=builder.id),
+            BrigadeMember(brigade_id=brigades[1].id, user_id=welder.id),
+            BrigadeMember(brigade_id=brigades[2].id, user_id=connector.id),
+        ])
 
     tasks = [
         Task(

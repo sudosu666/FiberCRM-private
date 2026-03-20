@@ -23,6 +23,7 @@ logs/
 # Playwright / E2E artifacts
 playwright-report/
 test-results/
+backend/app/frontend/static/uploads/
 
 # IDE / OS
 .idea/

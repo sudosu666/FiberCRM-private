@@ -65,6 +65,12 @@
 - DB backup automation scripts and backup service in production compose.
 - E2E smoke tests in CI (`tests/e2e/api`, `tests/e2e/realtime`).
 
+## Run All E2E Tests
+- One command for full end-to-end run (API + realtime + ops + UI):
+- `./scripts/run_e2e.sh`
+- Skip Playwright UI suite if needed:
+- `RUN_UI_TESTS=0 ./scripts/run_e2e.sh`
+
 ## Backend notes
 - Main entrypoint: `backend/app/main.py` (`sio_app`).
 - Backend env template: `backend/.env.example`.
