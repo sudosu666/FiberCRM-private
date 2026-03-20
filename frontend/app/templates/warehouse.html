@@ -65,11 +65,31 @@
 
     <section class="card card-wide">
       <div class="card-head">
+        <h2>Матеріали по задачах (від дизайнера)</h2>
+        <button id="refreshPlan" type="button">Оновити</button>
+      </div>
+      <div id="materialPlanList" class="stack">
+        <p class="placeholder">Завантаження плану...</p>
+      </div>
+    </section>
+
+    <section class="card card-wide">
+      <div class="card-head">
         <h2>Історія руху матеріалів</h2>
         <button id="refreshTransactions" type="button">Оновити</button>
       </div>
       <div id="transactionsList" class="stack">
         <p class="placeholder">Завантаження історії...</p>
+      </div>
+    </section>
+
+    <section class="card card-wide">
+      <div class="card-head">
+        <h2>Факт витрат і де зависло</h2>
+        <button id="refreshFacts" type="button">Оновити</button>
+      </div>
+      <div id="executionFactsList" class="stack">
+        <p class="placeholder">Завантаження фактів...</p>
       </div>
     </section>
   </main>

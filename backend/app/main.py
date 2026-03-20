@@ -19,6 +19,7 @@ from .routers import (
     tenders_router,
     warehouse_router,
     dispatch_router,
+    finance_router,
     ui_router,
 )
 from .seed import seed_demo_data
@@ -44,6 +45,7 @@ app.include_router(network_router)
 app.include_router(tenders_router)
 app.include_router(warehouse_router)
 app.include_router(dispatch_router)
+app.include_router(finance_router)
 app.include_router(ui_router)
 
 project_root = Path(__file__).resolve().parents[2]

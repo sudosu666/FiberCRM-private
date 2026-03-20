@@ -288,6 +288,103 @@ class WorkSummaryRead(BaseModel):
     logs: List[WorkLogRead]
 
 
+class WorkRateRead(BaseModel):
+    id: UUID
+    code: str
+    title: str
+    unit: str
+    price_uah: float
+    is_active: bool
+    updated_at: datetime
+
+
+class WorkRateUpsert(BaseModel):
+    code: str = Field(min_length=2, max_length=80)
+    title: str = Field(min_length=2, max_length=255)
+    unit: str = Field(default="unit", min_length=1, max_length=20)
+    price_uah: float = Field(ge=0)
+    is_active: bool = True
+
+
+class WorkEntryCreate(BaseModel):
+    work_code: str = Field(min_length=2, max_length=80)
+    quantity: float = Field(gt=0)
+    notes: Optional[str] = None
+    event_at: Optional[datetime] = None
+
+
+class WorkEntryRead(BaseModel):
+    id: UUID
+    task_id: Optional[UUID]
+    brigade_id: Optional[UUID]
+    user_id: Optional[UUID]
+    work_rate_id: UUID
+    work_code: str
+    title: str
+    quantity: float
+    unit: str
+    unit_price_uah: float
+    total_price_uah: float
+    notes: Optional[str]
+    event_at: datetime
+    created_at: datetime
+
+
+class BrigadePayoutRead(BaseModel):
+    brigade_id: UUID
+    brigade_name: Optional[str]
+    date_from: datetime
+    date_to: datetime
+    entries_count: int
+    total_amount_uah: float
+    members_count: int
+    per_member_amount_uah: float
+    member_user_ids: List[UUID] = Field(default_factory=list)
+
+
+class CalendarEventRead(BaseModel):
+    entity_type: str
+    entity_id: UUID
+    title: str
+    status: str
+    starts_at: datetime
+    ends_at: Optional[datetime] = None
+    building_address: Optional[str] = None
+    brigade_name: Optional[str] = None
+
+
+class TaskCompleteActualsRequest(BaseModel):
+    cable_indoor_m: float = Field(default=0, ge=0)
+    cable_outdoor_m: float = Field(default=0, ge=0)
+    cable_air_m: float = Field(default=0, ge=0)
+    cable_wasted_m: float = Field(default=0, ge=0)
+    tubes_qty: float = Field(default=0, ge=0)
+    boxes_qty: float = Field(default=0, ge=0)
+    fops_qty: float = Field(default=0, ge=0)
+    notes: Optional[str] = None
+
+
+class TaskMaterialFactRead(BaseModel):
+    material_code: str
+    material_title: str
+    unit: str
+    taken_qty: float
+    used_qty: float
+    wasted_qty: float
+    delta_qty: float
+
+
+class TaskCompleteActualsRead(BaseModel):
+    task_id: UUID
+    status: TaskStatus
+    event_at: datetime
+    brigade_id: Optional[UUID]
+    brigade_total_amount_uah: float
+    brigade_members_count: int
+    per_member_amount_uah: float
+    facts: List[TaskMaterialFactRead] = Field(default_factory=list)
+
+
 class BrigadeTaskSummary(BaseModel):
     id: UUID
     type: TaskType
@@ -363,17 +460,26 @@ class StockTransactionRead(BaseModel):
 
 class WarehouseRequestItemRead(BaseModel):
     id: UUID
+    stock_item_id: UUID
     stock_item_name: str
+    stock_item_unit: str
     planned_qty: float
     fulfilled_qty: Optional[float]
 
 
 class WarehouseRequestRead(BaseModel):
     id: UUID
+    task_id: Optional[UUID] = None
+    building_id: Optional[UUID] = None
     building_address: Optional[str]
+    requested_by: Optional[UUID] = None
+    requested_by_name: Optional[str] = None
     status: str
     notes: Optional[str]
     created_at: datetime
+    fulfilled_at: Optional[datetime] = None
+    fulfilled_by: Optional[UUID] = None
+    fulfilled_by_name: Optional[str] = None
     items: List[WarehouseRequestItemRead]
 
 
@@ -396,6 +502,41 @@ class WarehouseRequestCreate(BaseModel):
     task_id: Optional[UUID] = None
     notes: Optional[str] = None
     items: List[WarehouseRequestCreateItem] = Field(default_factory=list)
+
+
+class TaskMaterialSuggestionItemRead(BaseModel):
+    stock_item_id: Optional[UUID] = None
+    stock_item_name: str
+    unit: str
+    suggested_qty: float
+    editable: bool = True
+
+
+class TaskMaterialSuggestionRead(BaseModel):
+    task_id: UUID
+    building_id: Optional[UUID] = None
+    building_address: Optional[str] = None
+    task_status: str
+    latest_request_id: Optional[UUID] = None
+    latest_request_status: Optional[str] = None
+    latest_request_created_at: Optional[datetime] = None
+    latest_request_fulfilled_at: Optional[datetime] = None
+    items: List[TaskMaterialSuggestionItemRead] = Field(default_factory=list)
+
+
+class TaskMaterialRequestPropose(BaseModel):
+    notes: Optional[str] = None
+    items: List[WarehouseRequestCreateItem] = Field(default_factory=list)
+
+
+class WarehouseExecutionFactRead(BaseModel):
+    task_id: UUID
+    building_address: Optional[str] = None
+    task_status: str
+    completed_at: Optional[datetime] = None
+    has_material_block: bool = False
+    material_block_reason: Optional[str] = None
+    facts: List[TaskMaterialFactRead] = Field(default_factory=list)
 
 
 class NetworkFiberRead(BaseModel):

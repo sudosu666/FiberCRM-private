@@ -28,13 +28,35 @@
     </header>
 
     <nav class="phase-nav" aria-label="Field ops phases">
-      <button data-target="taskSection" class="phase-tab is-active">1. Задача</button>
-      <button data-target="stepsSection" class="phase-tab">2. Кроки</button>
-      <button data-target="photoSection" class="phase-tab">3. Фото-звіт</button>
-      <button data-target="chatSection" class="phase-tab">4. Чат</button>
+      <button data-target="materialsSection" class="phase-tab is-active">1. Матеріали</button>
+      <button data-target="taskSection" class="phase-tab">2. Задача</button>
+      <button data-target="stepsSection" class="phase-tab">3. Кроки</button>
+      <button data-target="photoSection" class="phase-tab">4. Фото-звіт</button>
+      <button data-target="chatSection" class="phase-tab">5. Чат</button>
+      <button data-target="worksSection" class="phase-tab">6. Роботи</button>
     </nav>
 
     <main class="pwa-main">
+      <section class="panel" id="materialsSection">
+        <div class="panel-header">
+          <div>
+            <p class="panel-kicker">Етап 1</p>
+            <h2>Забрати матеріали</h2>
+            <p class="secondary" id="materialsStatus">Оберіть задачу для формування запиту на склад.</p>
+          </div>
+          <button class="ghost" id="refreshMaterials">Оновити</button>
+        </div>
+        <div class="hold-box">
+          <select id="materialCustomStock"></select>
+          <input type="number" id="materialCustomQty" min="0.1" step="0.1" placeholder="Кількість">
+          <button class="ghost" id="addMaterialItem" type="button">Додати позицію</button>
+        </div>
+        <div class="task-list" id="materialsList">
+          <div class="placeholder">План матеріалів буде тут</div>
+        </div>
+        <button class="btn primary" id="submitMaterialsRequest" type="button">Надіслати запит на склад</button>
+      </section>
+
       <section class="panel" id="taskSection">
         <div class="panel-header">
           <div>
@@ -47,21 +69,35 @@
         <div class="panel-header">
           <div>
             <p class="secondary" id="taskStatusMeta">Статус: очікування</p>
+            <p class="secondary" id="taskActionHint">Оберіть задачу для дій</p>
           </div>
           <div class="task-actions">
-            <button class="ghost" id="startTask">Почати</button>
-            <button class="ghost" id="finishTask">Завершити</button>
+            <button class="ghost" id="startTask" type="button" disabled>Почати</button>
+            <button class="ghost" id="finishTask" type="button" disabled>Завершити</button>
           </div>
         </div>
         <div class="hold-box">
           <input type="text" id="holdReason" placeholder="Причина призупинення / критичності">
-          <label><input type="checkbox" id="holdCritical"> Критично</label>
-          <button class="ghost" id="holdTask">Призупинити</button>
+          <label><input type="checkbox" id="holdCritical" disabled> Критично</label>
+          <button class="ghost" id="holdTask" type="button" disabled>Призупинити</button>
         </div>
         <div class="hold-box">
           <input type="text" id="postponeReason" placeholder="Причина переносу на іншу зміну">
-          <button class="ghost" id="postponeTask">Перенос</button>
+          <button class="ghost" id="postponeTask" type="button" disabled>Перенос</button>
         </div>
+        <div class="hold-box">
+          <input type="number" id="actualCableIndoor" min="0" step="0.1" placeholder="Кабель indoor, м">
+          <input type="number" id="actualCableOutdoor" min="0" step="0.1" placeholder="Кабель outdoor, м">
+          <input type="number" id="actualCableAir" min="0" step="0.1" placeholder="Кабель по повітрю, м">
+          <input type="number" id="actualCableWaste" min="0" step="0.1" placeholder="Списати кабель, м">
+        </div>
+        <div class="hold-box">
+          <input type="number" id="actualBoxes" min="0" step="1" placeholder="Бокси, шт">
+          <input type="number" id="actualTubes" min="0" step="1" placeholder="Трубки, шт">
+          <input type="number" id="actualFops" min="0" step="1" placeholder="ФОП/муфти, шт">
+          <input type="text" id="actualNote" placeholder="Нотатка до факту виконання">
+        </div>
+        <div id="completionSummary" class="secondary">Фактичні показники будуть враховані при завершенні задачі.</div>
         <div class="task-list" id="taskList">
           <div class="placeholder">Завантаження задач ...</div>
         </div>
@@ -76,7 +112,7 @@
           <span class="badge" id="stepBadge">Крок 1 з 4</span>
         </div>
         <div class="step-tracker" id="stepTimeline"></div>
-        <button class="btn primary" id="advanceStep">Продовжити</button>
+        <button class="btn primary" id="advanceStep" type="button" disabled>Продовжити</button>
       </section>
 
       <section class="panel" id="photoSection">
@@ -106,9 +142,30 @@
           <div class="placeholder">Почніть чат, щойно підключитесь до Socket.IO</div>
         </div>
         <form id="chatForm" class="chat-form">
-          <input type="text" id="chatInput" placeholder="Написати повідомлення" autocomplete="off" required>
-          <button type="submit">Відправити</button>
+          <input type="text" id="chatInput" placeholder="Написати повідомлення" autocomplete="off" required disabled>
+          <button type="submit" id="chatSend" disabled>Відправити</button>
         </form>
+      </section>
+
+      <section class="panel" id="worksSection">
+        <div class="panel-header">
+          <div>
+            <p class="panel-kicker">Виконані роботи</p>
+            <h2>Фіксація для розрахунку оплати</h2>
+          </div>
+          <span class="badge" id="workRateStatus">rate: -</span>
+        </div>
+        <div class="hold-box">
+          <select id="workRateCode"></select>
+          <input type="number" id="workQuantity" min="0.1" step="0.1" value="1" placeholder="Кількість">
+          <button class="ghost" id="addWorkEntry" type="button">Додати виконання</button>
+        </div>
+        <div class="hold-box">
+          <input type="text" id="workNote" placeholder="Примітка (опціонально)">
+        </div>
+        <div class="task-list" id="workEntriesList">
+          <div class="placeholder">Записів ще немає</div>
+        </div>
       </section>
     </main>
 

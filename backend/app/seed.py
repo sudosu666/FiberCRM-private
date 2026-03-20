@@ -26,6 +26,7 @@ from .models import (
     WarehouseRequest,
     WarehouseRequestItem,
     TaskStep,
+    WorkRate,
 )
 
 DEMO_USERS = [
@@ -94,6 +95,16 @@ CLEAN_BUILDINGS = [
     {"address": "вул. Квіткова 7 · Харків", "city": "Харків", "entrances": 4, "floors": 10, "flats": 5, "distance": 90},
     {"address": "просп. Науки 33 · Харків", "city": "Харків", "entrances": 2, "floors": 16, "flats": 6, "distance": 150},
     {"address": "вул. Слобідська 5 · Харків", "city": "Харків", "entrances": 1, "floors": 5, "flats": 4, "distance": 45},
+]
+
+DEFAULT_WORK_RATES = [
+    {"code": "cable_inside_m", "title": "Прокладка кабеля (всередині)", "unit": "m", "price_uah": 18.0},
+    {"code": "cable_outside_m", "title": "Прокладка кабеля (зовні)", "unit": "m", "price_uah": 24.0},
+    {"code": "cable_air_m", "title": "Прокладка кабеля по повітрю", "unit": "m", "price_uah": 32.0},
+    {"code": "tube_between_floors", "title": "Трубка між поверхами", "unit": "unit", "price_uah": 120.0},
+    {"code": "box_installed", "title": "Встановлений бокс", "unit": "unit", "price_uah": 450.0},
+    {"code": "fop_installed", "title": "Встановлений ФОП/муфта", "unit": "unit", "price_uah": 350.0},
+    {"code": "cable_waste_m", "title": "Списання кабеля (непродуктивне)", "unit": "m", "price_uah": 0.0},
 ]
 
 
@@ -170,7 +181,31 @@ async def ensure_clean_tender_buildings(session: AsyncSession) -> None:
     await session.flush()
 
 
+async def ensure_default_work_rates(session: AsyncSession) -> None:
+    existing = (await session.scalars(select(WorkRate))).all()
+    by_code = {item.code: item for item in existing}
+    for item in DEFAULT_WORK_RATES:
+        current = by_code.get(item["code"])
+        if current:
+            current.title = item["title"]
+            current.unit = item["unit"]
+            current.price_uah = item["price_uah"]
+            current.is_active = True
+            current.updated_at = datetime.utcnow()
+            session.add(current)
+            continue
+        session.add(WorkRate(
+            code=item["code"],
+            title=item["title"],
+            unit=item["unit"],
+            price_uah=item["price_uah"],
+            is_active=True,
+        ))
+    await session.flush()
+
+
 async def seed_demo_data(session: AsyncSession) -> None:
+    await ensure_default_work_rates(session)
     users_by_phone = await ensure_demo_users(session)
     existing = await session.scalar(select(func.count()).select_from(Tender))
     if existing and existing > 0:

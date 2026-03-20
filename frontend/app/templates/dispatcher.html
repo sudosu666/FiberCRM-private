@@ -14,6 +14,10 @@
   .task-item { border-bottom: 1px solid var(--border); padding: 10px 0; font-size: 13px; }
   .task-item:last-child { border-bottom: none; }
   .stack { display: flex; flex-direction: column; gap: 10px; }
+  .compact-row { display: flex; gap: 8px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+  .compact-row select { min-width: 140px; }
+  .entity-link { cursor: pointer; }
+  .entity-link:hover { color: var(--accent); }
 </style>
 </head>
 <body>
@@ -34,6 +38,7 @@
         <div id="authUserRole" style="font-size: 12px; color: var(--text-muted)"></div>
         <button class="btn btn-ghost btn-sm" id="authLogoutButton" hidden>Вийти</button>
         <a class="btn btn-primary btn-sm" id="authLoginLink" href="/login">Увійти</a>
+        <button class="btn btn-ghost btn-sm" id="openAssignedWindow">Статус призначених</button>
         <button class="btn btn-primary btn-sm" id="refreshTasks">Оновити</button>
       </div>
     </header>
@@ -76,6 +81,11 @@
         <!-- Right: Social & Groups -->
         <div class="flex-col">
           <div class="card">
+            <div class="card-header"><span class="card-title">Співробітники</span></div>
+            <div id="workersList" class="stack"></div>
+          </div>
+
+          <div class="card">
             <div class="card-header"><span class="card-title">Бригади</span></div>
             <div id="brigadesList" class="stack"></div>
           </div>
@@ -98,6 +108,30 @@
           <div class="card">
             <div class="card-header"><span class="card-title">Таймлайн</span></div>
             <div id="eventFeed" class="stack" style="max-height: 400px; overflow-y: auto; font-size: 11px;"></div>
+          </div>
+
+          <div class="card">
+            <div class="card-header"><span class="card-title">Календар та Виплати</span></div>
+            <div class="stack">
+              <div class="compact-row">
+                <label>Від</label><input id="calendarFrom" type="date">
+                <label>До</label><input id="calendarTo" type="date">
+                <button class="btn btn-ghost btn-sm" id="loadCalendar">Календар</button>
+              </div>
+              <div id="calendarList" style="font-size:11px;max-height:160px;overflow-y:auto;"></div>
+              <div class="compact-row">
+                <select id="payoutBrigade"></select>
+                <button class="btn btn-ghost btn-sm" id="calcPayout">Розрахувати</button>
+              </div>
+              <div id="payoutBox" style="font-size:11px;color:var(--text-secondary)">Оберіть бригаду та період.</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header"><span class="card-title">Деталі Сутності</span></div>
+            <div id="entityDetails" style="font-size:12px;color:var(--text-secondary);line-height:1.5;">
+              Оберіть будинок, співробітника або задачу для детального перегляду.
+            </div>
           </div>
         </div>
       </div>

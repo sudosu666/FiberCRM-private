@@ -8,6 +8,7 @@ from .network_router import router as network_router
 from .tenders_router import router as tenders_router
 from .warehouse_router import router as warehouse_router
 from .dispatch_router import router as dispatch_router
+from .finance_router import router as finance_router
 
 __all__ = [
     "auth_router",
@@ -19,4 +20,5 @@ __all__ = [
     "tenders_router",
     "warehouse_router",
     "dispatch_router",
+    "finance_router",
 ]

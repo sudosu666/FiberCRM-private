@@ -71,6 +71,16 @@
 - Skip Playwright UI suite if needed:
 - `RUN_UI_TESTS=0 ./scripts/run_e2e.sh`
 
+## Ngrok Tunnel (Static Domain)
+- Export ngrok credentials:
+- `export NGROK_AUTHTOKEN="<your_ngrok_token>"`
+- `export NGROK_DOMAIN="inevasible-confidingly-lucienne.ngrok-free.dev"`
+- Start tunnel service:
+- `docker-compose --profile tunnel up -d ngrok`
+- Verify logs:
+- `docker-compose logs -f ngrok`
+- Tunnel forwards to backend on `http://backend:8000`, so `/dispatcher` opens on your ngrok URL while container is running.
+
 ## Backend notes
 - Main entrypoint: `backend/app/main.py` (`sio_app`).
 - Backend env template: `backend/.env.example`.

@@ -592,17 +592,52 @@ async def load_warehouse_requests(session: AsyncSession) -> List[WarehouseReques
     )
     result = await session.scalars(stmt)
     requests = result.all()
+    user_ids: set[UUID] = {req.requested_by for req in requests if req.requested_by}
+    req_ids = [req.id for req in requests]
+    if req_ids:
+        tx_rows = (await session.scalars(
+            select(StockTransaction)
+            .where(StockTransaction.reason.in_([f"warehouse_request:{item_id}" for item_id in req_ids]))
+            .order_by(StockTransaction.created_at.desc())
+        )).all()
+    else:
+        tx_rows = []
+    fulfilled_by_map: dict[UUID, UUID] = {}
+    for tx in tx_rows:
+        if not tx.reason or not tx.user_id:
+            continue
+        req_id_str = tx.reason.replace("warehouse_request:", "")
+        try:
+            req_id = UUID(req_id_str)
+        except ValueError:
+            continue
+        if req_id in fulfilled_by_map:
+            continue
+        fulfilled_by_map[req_id] = tx.user_id
+        user_ids.add(tx.user_id)
+    users = (await session.scalars(select(User).where(User.id.in_(list(user_ids))))).all() if user_ids else []
+    user_map = {user.id: user.name for user in users}
     records = []
     for req in requests:
+        fulfilled_by = fulfilled_by_map.get(req.id)
         records.append(WarehouseRequestRead(
-            id=str(req.id),
+            id=req.id,
+            task_id=req.task_id,
+            building_id=req.building_id,
             building_address=req.building.address if req.building else None,
+            requested_by=req.requested_by,
+            requested_by_name=user_map.get(req.requested_by),
             status=req.status.value,
             notes=req.notes,
             created_at=req.created_at,
+            fulfilled_at=req.fulfilled_at,
+            fulfilled_by=fulfilled_by,
+            fulfilled_by_name=user_map.get(fulfilled_by) if fulfilled_by else None,
             items=[WarehouseRequestItemRead(
                 id=item.id,
+                stock_item_id=item.stock_item_id,
                 stock_item_name=item.stock_item.name,
+                stock_item_unit=item.stock_item.unit,
                 planned_qty=item.planned_qty,
                 fulfilled_qty=item.fulfilled_qty,
             ) for item in req.items],

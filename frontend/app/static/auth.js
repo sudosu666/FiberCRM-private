@@ -55,8 +55,20 @@
 
     var response = await fetch(url, options);
     if (!response.ok) {
-      var err = new Error(response.status + ' ' + url);
+      var detail = '';
+      try {
+        var payload = await response.clone().json();
+        if (payload && payload.detail) detail = String(payload.detail);
+      } catch (_jsonErr) {
+        try {
+          detail = (await response.text()).trim();
+        } catch (_textErr) {
+          detail = '';
+        }
+      }
+      var err = new Error((detail || (response.status + ' ' + url)));
       err.status = response.status;
+      err.detail = detail || null;
       throw err;
     }
 

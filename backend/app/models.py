@@ -489,6 +489,62 @@ class WorkLog(SQLModel, table=True):
     task: Optional[Task] = Relationship()
 
 
+class WorkRate(SQLModel, table=True):
+    __tablename__ = "work_rates"
+    __table_args__ = (UniqueConstraint("code", name="uq_work_rates_code"),)
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    code: str = Field(sa_column=Column(String(80), nullable=False))
+    title: str = Field(sa_column=Column(String(255), nullable=False))
+    unit: str = Field(sa_column=Column(String(20), nullable=False, default="unit"))
+    price_uah: float = Field(default=0.0)
+    is_active: bool = Field(default=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class WorkEntry(SQLModel, table=True):
+    __tablename__ = "work_entries"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    task_id: Optional[UUID] = Field(default=None, foreign_key="tasks.id")
+    brigade_id: Optional[UUID] = Field(default=None, foreign_key="brigades.id")
+    user_id: Optional[UUID] = Field(default=None, foreign_key="users.id")
+    work_rate_id: UUID = Field(foreign_key="work_rates.id")
+    work_code: str = Field(sa_column=Column(String(80), nullable=False))
+    title: str = Field(sa_column=Column(String(255), nullable=False))
+    quantity: float = Field(default=1.0)
+    unit: str = Field(sa_column=Column(String(20), nullable=False, default="unit"))
+    unit_price_uah: float = Field(default=0.0)
+    total_price_uah: float = Field(default=0.0)
+    notes: Optional[str] = None
+    event_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    task: Optional[Task] = Relationship()
+    brigade: Optional[Brigade] = Relationship()
+    user: Optional[User] = Relationship()
+    work_rate: WorkRate = Relationship()
+
+
+class TaskMaterialFact(SQLModel, table=True):
+    __tablename__ = "task_material_facts"
+    __table_args__ = (UniqueConstraint("task_id", "material_code", name="uq_task_material_facts"),)
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    task_id: UUID = Field(foreign_key="tasks.id", nullable=False)
+    material_code: str = Field(sa_column=Column(String(80), nullable=False))
+    material_title: str = Field(sa_column=Column(String(255), nullable=False))
+    unit: str = Field(sa_column=Column(String(20), nullable=False, default="unit"))
+    taken_qty: float = Field(default=0.0)
+    used_qty: float = Field(default=0.0)
+    wasted_qty: float = Field(default=0.0)
+    delta_qty: float = Field(default=0.0)
+    recorded_at: datetime = Field(default_factory=datetime.utcnow)
+
+    task: Task = Relationship()
+
+
 class Notification(SQLModel, table=True):
     __tablename__ = "notifications"
 

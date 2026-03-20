@@ -34,6 +34,9 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px/1.4 Inter,system-
 .hold-box input[type="text"], .chat-form input{
   width:100%;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:9px 10px
 }
+.hold-box input[type="number"], .hold-box select{
+  width:100%;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:9px 10px
+}
 .hold-box label{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:12px}
 .task-list,.step-tracker,.photo-grid,.chat-window{display:grid;gap:8px}
 .task-card,.step-card,.photo-card,.chat-msg{border:1px solid var(--border);border-radius:10px;padding:10px;background:var(--surface)}

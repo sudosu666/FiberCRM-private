@@ -14,6 +14,28 @@
   .logo { font-size: 24px; font-weight: 800; color: var(--accent); letter-spacing: 4px; margin-bottom: 8px; }
   .subtitle { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 30px; }
   .error-box { margin-bottom: 20px; padding: 10px; background: rgba(239, 68, 68, 0.1); border: 1px solid var(--danger); color: var(--danger); font-size: 12px; border-radius: 6px; display: none; }
+  .demo-user-btn {
+    width: 100%;
+    text-align: left;
+    margin: 0 0 6px 0;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.02);
+    color: var(--text-secondary);
+    border-radius: 8px;
+    padding: 8px 10px;
+    cursor: pointer;
+    font-size: 11px;
+  }
+  .demo-user-btn:hover {
+    border-color: var(--accent);
+    color: var(--text-primary);
+  }
+  .demo-user-meta {
+    display: block;
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
 </style>
 </head>
 <body>
@@ -37,7 +59,7 @@
   </form>
 
   <div id="demoUsers" style="margin-top:16px;text-align:left;border-top:1px solid var(--border);padding-top:12px;">
-    <div style="font-size:10px;color:var(--text-muted);margin-bottom:8px;letter-spacing:1px;text-transform:uppercase;">Тестові акаунти</div>
+    <div style="font-size:10px;color:var(--text-muted);margin-bottom:8px;letter-spacing:1px;text-transform:uppercase;">Тестові акаунти (клік для автозаповнення)</div>
     <div id="demoUsersList" style="font-size:11px;color:var(--text-secondary);line-height:1.6;">Завантаження...</div>
   </div>
   
@@ -97,6 +119,8 @@
 
   async function loadDemoUsers() {
     const mount = document.getElementById('demoUsersList');
+    const usernameInput = document.getElementById('username');
+    const passwordInput = document.getElementById('password');
     if (!mount) return;
     try {
       const res = await fetch('/auth/demo-users');
@@ -107,8 +131,21 @@
         return;
       }
       mount.innerHTML = users.map((u) =>
-        `<div><strong>${u.phone}</strong> · ${u.role} · <code>${u.password}</code></div>`
+        `<button type="button" class="demo-user-btn" data-phone="${u.phone}" data-password="${u.password}">
+          <strong>${u.name || u.phone}</strong>
+          <span class="demo-user-meta">${u.phone} · ${u.role} · пароль: <code>${u.password}</code></span>
+        </button>`
       ).join('');
+      mount.querySelectorAll('.demo-user-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const phone = btn.getAttribute('data-phone') || '';
+          const pass = btn.getAttribute('data-password') || '';
+          usernameInput.value = phone;
+          passwordInput.value = pass;
+          errorBox.style.display = 'none';
+          passwordInput.focus();
+        });
+      });
     } catch (_err) {
       mount.textContent = 'Тестові акаунти недоступні';
     }
